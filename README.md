@@ -1,65 +1,75 @@
-# Pulse Chennai Spatial ETA & Routing Engine 
+<div align="center">
+  <h1>🚇 Pulse-Chennai</h1>
+  <h3>A Cloud-Native, Event-Driven Geospatial Engine for Reliable Urban Transit</h3>
+</div>
 
-A production-grade, asynchronous spatial routing platform. This system calculates exact street-network distances using OpenStreetMap data and predicts arrival times using an ensemble Machine Learning model, all orchestrated through a distributed asynchronous queue.
+<p align="center">
+  Pulse-Chennai is a next-generation public transit tracking system built to eliminate <strong>"Ghost Buses"</strong> and provide ultra-accurate ETAs. It upgrades legacy transit tracking by fusing unreliable AIS 140 hardware telemetry with <strong>TomTom Live Traffic APIs</strong>, Crowdsourced Passenger Wi-Fi/GPS pings, and an H3-indexed Graph Neural Network (GNN).
+</p>
 
-## 🏗 System Architecture
+---
 
-Unlike standard API CRUD apps, this engine is built to handle heavy, CPU-bound matrix mathematics without blocking the main event loop.
+## 🏗️ System Architecture
 
-1. **FastAPI (The Gateway):** Receives the coordinate payload, writes a pending row to the PostGIS database, drops a message into Redis, and immediately returns a `202 Accepted` to keep the UI responsive.
-2. **Redis (The Broker):** Acts as the high-speed message broker holding the queue of ride requests.
-3. **Celery (The Muscle):** Background worker nodes pick up tasks from Redis. They dynamically download and cache localized OpenStreetMap bounding boxes, execute Dijkstra's algorithm for street snapping, and run the ML inference engine to predict ETA.
-4. **PostGIS (The Memory):** PostgreSQL with the PostGIS extension stores the resulting path as a mathematically queryable `LINESTRING` geometry. 
-5. **WebSockets:** A real-time socket connection streams simulated driver coordinates at 1Hz to the client.
+Pulse-Chennai transitions away from traditional CRUD-based tracking into a high-throughput **Lambda Architecture** designed for geospatial intelligence:
+
+1. **The Ingestion Pipeline (Kafka):** Raw GPS pings from buses and passengers stream into Kafka topics.
+2. **Hardware Reliability Scorer:** A real-time audit module assigns health scores to AIS 140 devices based on jitter, update frequency, and impossible speeds. Devices scoring `< 0.3` are flagged as **Ghost Buses**.
+3. **Collaborative Telemetry (Data Fusion):** When a bus hardware fails (Ghost Bus), the system automatically blends nearby anonymized passenger smartphone pings and TomTom Traffic flow data to estimate the actual position.
+4. **Speed Layer (Redis):** Caches live spatial node states and bus locations for sub-millisecond access.
+5. **Batch Layer (AWS S3 & Parquet):** Cold-stores petabytes of historical trajectories keyed by Uber H3 cells for model retraining.
+6. **Spatial-Temporal GNN:** A 3-layer Graph Attention Network (GAT) with LSTM time-encoding processes H3 hexagons to predict localized bottlenecks and accurate ETAs.
+7. **HMM Map-Matching:** Viterbi Dynamic Programming snaps the GNN's predicted latent coordinates back onto the actual OpenStreetMap road network.
 
 ## 💻 Tech Stack
 
-* **Frontend:** React, Vite, TailwindCSS, React-Leaflet, Uber H3-js (Spatial Hexagons)
-* **Backend:** FastAPI, Uvicorn, SQLAlchemy, GeoAlchemy2
-* **Distributed Queue:** Celery, Redis
-* **Database:** PostgreSQL + PostGIS (Hosted on Supabase)
-* **Spatial/ML Engine:** OSMnx, NetworkX, Scikit-Learn, XGBoost, Pandas
+* **ML / AI Engine:** PyTorch, PyTorch Geometric (PyG), Scikit-Learn
+* **Spatial & Tracking:** Uber H3 (Hexagonal Hierarchical Geospatial Indexing), TomTom Traffic Flow API
+* **Streaming & Data:** Apache Kafka, Redis, AWS S3, Apache Parquet
+* **Backend:** FastAPI, Uvicorn, Pydantic
+* **Frontend Dashboard:** HTML, Vanilla JS, CSS Glassmorphism, TomTom Maps Web SDK
+* **Deployment:** Docker (CUDA 12.1 multi-stage), Kubernetes (K8s)
 
-## ✨ Key Features
+## ✨ Core Innovations
 
-* **Dynamic Bounding-Box Caching:** The engine automatically calculates the Haversine distance of a trip, downloads a custom OpenStreetMap chunk with a 30% safety buffer, and caches it to disk. Future rides in that grid load in sub-seconds.
-* **Silent Failure Prevention:** Explicit type casting from C-level NumPy datatypes to native Python prevents database serialization crashes.
-* **Live Driver Streaming:** WebSockets push location updates to the client without aggressive HTTP polling.
-* **Dynamic Pricing Engine:** React calculates base fares and time multipliers natively based on exact spatial kilometers.
+* **Ghost Bus Recovery:** Uses latent state estimation and passenger crowdsourcing to track buses even when their official GPS hardware dies.
+* **H3 K-Ring Graph:** Models the city of Chennai not as disconnected roads, but as a dynamic, interconnected graph of hex cells passing congestion "messages" to their neighbors.
+* **TomTom Traffic Integration:** Replaces static time-of-day guesses with live `flowSegmentData`, fetching real-time gridlock ratios across key Chennai bottlenecks.
+* **Kendall Multi-Task Loss:** The AI model simultaneously predicts graph node congestion (ranking) and Bus ETA (regression), balancing its own loss weights automatically during training.
+
+---
 
 ## 🚀 Local Development Setup
 
-**1. Clone the repository**
+### 1. Requirements
+Ensure you have Docker installed (for Redis/Kafka) and Python 3.10+.
+
+### 2. Clone and Install
 ```bash
-git clone [https://github.com/yourusername/uber-graph-recommender.git](https://github.com/yourusername/uber-graph-recommender.git)
-cd uber-graph-recommender
-2. Start the Message Broker (Docker Required)
-
-Bash
-docker run -d -p 6379:6379 redis
-3. Configure Environment Variables
-Create a .env file in the root directory and add your PostGIS database URL:
-
-Code snippet
-DATABASE_URL="postgresql://user:password@host:port/dbname"
-4. Start the Backend API & Worker
-Open two separate terminal windows.
-
-Bash
-# Terminal 1: The FastAPI Server
+git clone https://github.com/UnisysUIP/2026-Pulse-Chennai...
+cd repo/pulse_chennai
 pip install -r requirements.txt
-uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+```
 
-# Terminal 2: The Celery Worker
-celery -A src.worker.celery_app worker --loglevel=info
-5. Start the React Frontend
-Open a third terminal window.
+### 3. Environment Variables
+No mandatory API keys are required for the local demo (it will run using synthetic traffic generation), but for the full experience, add your TomTom API key in `config/settings.py` or export it:
+```bash
+export TOMTOM_API_KEY="your_tomtom_key_here"
+```
 
-Bash
-cd frontend
-npm install
-npm run dev
-🧠 Machine Learning Pipeline
-The historical EDA, feature engineering, and model training pipelines are preserved in the notebooks/ directory. The production engine uses a pre-trained joblib artifact to execute sub-second inference inside the Celery worker.
+### 4. Start the Dashboard & API Server
+```bash
+# This starts the FastAPI backend and serves the glassmorphism UI
+python -m uvicorn pulse_chennai.api.dashboard_server:app --host 0.0.0.0 --port 8001 --reload
+```
+Navigate to **http://localhost:8001** to view the live tracking map, TomTom traffic rings, metrics panel, and Ghost Bus detection alerts.
 
-Built by Jeeva Pravin.
+### 5. Run the Simulation script (ML + Graph Engine)
+Looking to see the core engine crunch data? Run the demo script:
+```bash
+python pulse_chennai/demo_simulation.py
+```
+This simulates a Kafka stream, triggers a ghost bus event, performs data fusion, and runs the PyTorch SpatialGNN over the H3 graph.
+
+---
+*Architected for the Unisys Innovation Program Hackathon 2026.*
