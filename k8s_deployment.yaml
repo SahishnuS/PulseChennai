@@ -1,0 +1,167 @@
+# ═══════════════════════════════════════════════════════
+# Pulse-Chennai Kubernetes Deployment
+# ═══════════════════════════════════════════════════════
+# GPU-scheduled deployment with HPA and service/ingress.
+# Requires NVIDIA device plugin on the cluster.
+# ═══════════════════════════════════════════════════════
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulse-chennai
+  namespace: transit
+  labels:
+    app: pulse-chennai
+    component: inference-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pulse-chennai
+  template:
+    metadata:
+      labels:
+        app: pulse-chennai
+        component: inference-engine
+    spec:
+      containers:
+        - name: pulse-chennai
+          image: pulse-chennai:latest
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+              nvidia.com/gpu: "1"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+              nvidia.com/gpu: "1"
+          env:
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pulse-config
+                  key: redis-host
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pulse-secrets
+                  key: redis-password
+            - name: GMAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pulse-secrets
+                  key: gmaps-api-key
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pulse-config
+                  key: s3-bucket
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: pulse-secrets
+                  key: aws-access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pulse-secrets
+                  key: aws-secret-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: model-weights
+              mountPath: /app/models
+              readOnly: true
+      volumes:
+        - name: model-weights
+          persistentVolumeClaim:
+            claimName: pulse-model-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulse-chennai-service
+  namespace: transit
+spec:
+  selector:
+    app: pulse-chennai
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pulse-chennai-ingress
+  namespace: transit
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  rules:
+    - host: api.pulse-chennai.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pulse-chennai-service
+                port:
+                  number: 80
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pulse-chennai-hpa
+  namespace: transit
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pulse-chennai
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # GPU utilization (requires DCGM exporter + custom metrics adapter)
+    - type: Pods
+      pods:
+        metric:
+          name: gpu_utilization
+        target:
+          type: AverageValue
+          averageValue: "70"

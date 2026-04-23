@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pulse-Chennai · Transit Intelligence Engine</title>
+  <meta name="description" content="Real-time bus tracking for Chennai MTC. Ghost Bus detection, GNN-powered ETAs, and TomTom live traffic.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <!-- TomTom Maps SDK -->
+  <link rel='stylesheet' type='text/css' href='https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css'>
+  <script src='https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js'></script>
+
+  <style>
+    /* ═══════════════════════════════════════
+       DESIGN TOKENS
+    ═══════════════════════════════════════ */
+    :root {
+      --bg:        #07090f;
+      --surface:   #0f1420;
+      --surface2:  #161c2e;
+      --border:    rgba(255,255,255,0.07);
+      --border2:   rgba(255,255,255,0.12);
+
+      --accent:    #6366f1;     /* Indigo */
+      --accent-g:  #8b5cf6;    /* Violet */
+      --green:     #22c55e;
+      --amber:     #f59e0b;
+      --red:       #ef4444;
+      --cyan:      #06b6d4;
+
+      --text-1:    #f1f5f9;
+      --text-2:    #94a3b8;
+      --text-3:    #475569;
+
+      --r:         12px;
+      --r-lg:      18px;
+      --shadow:    0 8px 32px rgba(0,0,0,0.5);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text-1);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 99px; }
+
+    /* ═══════════════════════════════════════
+       HEADER
+    ═══════════════════════════════════════ */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(7,9,15,0.95);
+      backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: 1.2rem; color: var(--text-1);
+    }
+    .logo-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { box-shadow: 0 0 6px var(--accent); }
+      50%      { box-shadow: 0 0 18px var(--accent), 0 0 32px var(--accent-g); }
+    }
+
+    .header-meta {
+      display: flex; align-items: center; gap: 20px;
+    }
+    .live-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25);
+      padding: 4px 12px; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 600; color: var(--red);
+    }
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--red);
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .clock {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem; color: var(--text-2);
+    }
+
+    .tomtom-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2);
+      padding: 4px 12px; border-radius: 99px;
+      font-size: 0.72rem; font-weight: 600; color: var(--accent);
+    }
+
+    /* ═══════════════════════════════════════
+       LAYOUT
+    ═══════════════════════════════════════ */
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr 300px;
+      grid-template-rows: auto 1fr;
+      height: calc(100vh - 60px);
+    }
+
+    /* Top stat bar spans all columns */
+    .stat-bar {
+      grid-column: 1 / -1;
+      display: flex; gap: 1px;
+      border-bottom: 1px solid var(--border);
+      background: var(--border);
+    }
+    .stat-item {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 14px 0;
+      background: var(--surface);
+      gap: 2px;
+      transition: background 0.2s;
+    }
+    .stat-item:hover { background: var(--surface2); }
+    .stat-value {
+      font-size: 1.6rem; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent-g));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .stat-value.green { background: linear-gradient(135deg, #22c55e, #10b981);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-value.amber { background: linear-gradient(135deg, #f59e0b, #f97316);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-value.red   { background: linear-gradient(135deg, #ef4444, #f43f5e);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-label { font-size: 0.7rem; color: var(--text-3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+
+    /* Left Panel */
+    .left-panel {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+
+    /* Center Map */
+    .map-area {
+      position: relative;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%; height: 100%;
+    }
+
+    /* Right Panel */
+    .right-panel {
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+
+    /* ═══════════════════════════════════════
+       PANEL SECTIONS
+    ═══════════════════════════════════════ */
+    .panel-section {
+      border-bottom: 1px solid var(--border);
+      padding: 16px;
+    }
+    .section-title {
+      font-size: 0.7rem; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .section-title::after {
+      content: ''; flex: 1;
+      height: 1px; background: var(--border);
+    }
+
+    /* ═══════════════════════════════════════
+       BUS CARDS
+    ═══════════════════════════════════════ */
+    #bus-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .bus-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative; overflow: hidden;
+    }
+    .bus-card:hover {
+      border-color: var(--border2);
+      transform: translateX(2px);
+      box-shadow: -4px 0 16px rgba(99,102,241,0.12);
+    }
+    .bus-card.ghost {
+      border-color: rgba(239,68,68,0.3);
+      background: rgba(239,68,68,0.06);
+    }
+    .bus-card.ghost::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(239,68,68,0.04));
+    }
+    .bus-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .bus-route {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem; font-weight: 600;
+      background: rgba(99,102,241,0.15); color: var(--accent);
+      padding: 2px 8px; border-radius: 6px;
+    }
+    .bus-status {
+      font-size: 0.65rem; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+    }
+    .bus-status.active  { background: rgba(34,197,94,0.15); color: var(--green); }
+    .bus-status.ghost   { background: rgba(239,68,68,0.15); color: var(--red); }
+    .bus-status.recovered { background: rgba(245,158,11,0.15); color: var(--amber); }
+    .bus-id {
+      font-size: 0.78rem; color: var(--text-2); font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .bus-meta {
+      display: flex; gap: 10px; flex-wrap: wrap;
+      font-size: 0.68rem; color: var(--text-3);
+    }
+    .bus-meta span { display: flex; align-items: center; gap: 3px; }
+
+    /* HW Score Bar */
+    .hw-bar-wrap {
+      margin-top: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .hw-bar-track {
+      flex: 1; height: 3px; border-radius: 99px;
+      background: var(--border2); overflow: hidden;
+    }
+    .hw-bar-fill {
+      height: 100%; border-radius: 99px;
+      transition: width 0.5s ease;
+    }
+    .hw-label { font-size: 0.65rem; color: var(--text-3); font-family: 'JetBrains Mono', monospace; min-width: 34px; text-align: right; }
+
+    /* ═══════════════════════════════════════
+       TRAFFIC PANEL
+    ═══════════════════════════════════════ */
+    .traffic-meter {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 12px;
+    }
+    .traffic-ring {
+      position: relative; width: 64px; height: 64px; flex-shrink: 0;
+    }
+    .traffic-ring svg { transform: rotate(-90deg); }
+    .traffic-ring-label {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem; font-weight: 700; color: var(--text-1);
+    }
+    .traffic-ring-label small { font-size: 0.55rem; color: var(--text-3); font-family: 'Inter', sans-serif; }
+    .traffic-info-col { flex: 1; }
+    .traffic-status-label {
+      font-size: 1rem; font-weight: 700; margin-bottom: 2px;
+    }
+    .traffic-source { font-size: 0.7rem; color: var(--text-3); }
+    .traffic-updated { font-size: 0.65rem; color: var(--text-3); margin-top: 2px;
+      font-family: 'JetBrains Mono', monospace; }
+
+    /* Bottleneck rows */
+    .bottleneck-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px; font-size: 0.75rem;
+    }
+    .bottleneck-name { flex: 1; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bottleneck-bar-track {
+      width: 80px; height: 4px; border-radius: 99px;
+      background: var(--border2); overflow: hidden; flex-shrink: 0;
+    }
+    .bottleneck-bar-fill { height: 100%; border-radius: 99px; }
+    .bottleneck-pct {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+      color: var(--text-3); min-width: 32px; text-align: right;
+    }
+
+    /* ═══════════════════════════════════════
+       METRICS PANEL
+    ═══════════════════════════════════════ */
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .metric-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 12px;
+    }
+    .metric-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.25rem; font-weight: 700; color: var(--text-1);
+      margin-bottom: 2px;
+    }
+    .metric-lbl { font-size: 0.65rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+
+    /* ═══════════════════════════════════════
+       GHOST EVENT ALERT
+    ═══════════════════════════════════════ */
+    .ghost-alert {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--r);
+      padding: 14px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .ghost-alert-header {
+      display: flex; align-items: center; gap: 8px;
+      font-weight: 700; font-size: 0.85rem; color: var(--red);
+    }
+    .ghost-icon { font-size: 1rem; }
+    .ghost-detail { font-size: 0.72rem; color: var(--text-2); line-height: 1.6; }
+    .ghost-recovered {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2);
+      border-radius: 8px; padding: 8px 10px;
+      font-size: 0.72rem; color: var(--green);
+    }
+
+    /* ═══════════════════════════════════════
+       MAP OVERLAYS
+    ═══════════════════════════════════════ */
+    .map-controls {
+      position: absolute; top: 14px; left: 14px; z-index: 10;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .map-pill {
+      background: rgba(15,20,32,0.92);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border2);
+      border-radius: 99px; padding: 6px 14px;
+      font-size: 0.72rem; font-weight: 600; color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .map-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .map-pill:hover:not(.active) { border-color: var(--border2); color: var(--text-1); }
+
+    /* Marker */
+    .bus-marker {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      border: 2px solid rgba(255,255,255,0.25);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .bus-marker:hover { transform: scale(1.2); }
+    .bus-marker.normal { background: radial-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 0 16px rgba(99,102,241,0.6); }
+    .bus-marker.ghost  { background: radial-gradient(135deg, #ef4444, #f43f5e); box-shadow: 0 0 16px rgba(239,68,68,0.6); animation: ghost-pulse 1.5s ease-in-out infinite; }
+    @keyframes ghost-pulse {
+      0%,100% { box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+      50%      { box-shadow: 0 0 24px rgba(239,68,68,0.9); }
+    }
+
+    /* Popup */
+    .tt-popup { font-family: 'Inter', sans-serif !important; }
+
+    /* ═══════════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════════ */
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 240px 1fr; }
+      .right-panel { display: none; }
+    }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; grid-template-rows: 300px 1fr; }
+      .left-panel { display: none; }
+      .stat-bar { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════ HEADER ═══════════════════════════════════ -->
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    Pulse · Chennai
+    <span style="font-weight:300; color: var(--text-3); font-size:0.8rem; margin-left: 6px;">Transit Intelligence</span>
+  </div>
+  <div class="header-meta">
+    <div class="tomtom-badge">⬡ TomTom Traffic</div>
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    <div class="clock" id="clock">—</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ─────────── TOP STAT BAR ─────────── -->
+  <div class="stat-bar">
+    <div class="stat-item">
+      <div class="stat-value green" id="s-active">—</div>
+      <div class="stat-label">Active Buses</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value red" id="s-ghost">—</div>
+      <div class="stat-label">Ghost Recovered</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="s-latency">—</div>
+      <div class="stat-label">GNN Latency ms</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value green" id="s-snap">—</div>
+      <div class="stat-label">Map-Snap Acc.</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value amber" id="s-eta">—</div>
+      <div class="stat-label">ETA Accuracy</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="s-kafka">—</div>
+      <div class="stat-label">Kafka Pings/s</div>
+    </div>
+  </div>
+
+  <!-- ─────────── LEFT PANEL ─────────── -->
+  <div class="left-panel">
+    <div class="panel-section">
+      <div class="section-title">Live Buses</div>
+      <div id="bus-list">
+        <div style="color:var(--text-3); font-size:0.8rem; text-align:center; padding:20px;">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────── MAP ─────────── -->
+  <div class="map-area">
+    <div class="map-controls">
+      <div class="map-pill active" onclick="toggleLayer(this,'traffic')" id="pill-traffic">🚦 Traffic Layer</div>
+      <div class="map-pill" onclick="toggleLayer(this,'satellite')" id="pill-sat">🛰 Satellite</div>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- ─────────── RIGHT PANEL ─────────── -->
+  <div class="right-panel">
+
+    <!-- TomTom Traffic -->
+    <div class="panel-section">
+      <div class="section-title">TomTom Traffic</div>
+      <div class="traffic-meter">
+        <div class="traffic-ring">
+          <svg width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="26" fill="none" stroke="var(--border2)" stroke-width="6"/>
+            <circle cx="32" cy="32" r="26" fill="none" stroke="#ef4444" stroke-width="6"
+              stroke-dasharray="163.36" id="traffic-ring-fill"
+              stroke-dashoffset="163.36" stroke-linecap="round"/>
+          </svg>
+          <div class="traffic-ring-label">
+            <span id="t-index">—</span>
+            <small>%</small>
+          </div>
+        </div>
+        <div class="traffic-info-col">
+          <div class="traffic-status-label" id="t-status">—</div>
+          <div class="traffic-source" id="t-source">TomTom Traffic Flow API</div>
+          <div class="traffic-updated" id="t-updated">—</div>
+        </div>
+      </div>
+      <div id="bottlenecks"></div>
+    </div>
+
+    <!-- Ghost Recovery -->
+    <div class="panel-section">
+      <div class="section-title">Ghost Detection</div>
+      <div class="ghost-alert" id="ghost-panel"></div>
+    </div>
+
+    <!-- System Metrics -->
+    <div class="panel-section">
+      <div class="section-title">System Metrics</div>
+      <div class="metric-grid" id="metric-grid"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════ */
+const TOMTOM_KEY  = '';          // ← paste your TomTom key here for live tiles & traffic
+const API_BASE    = '/dashboard'; // FastAPI backend
+
+/* ═══════════════════════════════════════
+   CLOCK
+═══════════════════════════════════════ */
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-IN', { hour12: false });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ═══════════════════════════════════════
+   TOMTOM MAP INIT
+═══════════════════════════════════════ */
+let map = null;
+let markers = {};
+let trafficFlowVisible = true;
+let satelliteMode = false;
+
+function initMap() {
+  map = tt.map({
+    key: TOMTOM_KEY || 'demo',      // With a valid key, we get real tiles
+    container: 'map',
+    center: [80.2707, 13.0827],     // Chennai Central [lng, lat]
+    zoom: 12,
+    style: TOMTOM_KEY
+      ? `https://api.tomtom.com/style/2/custom/style/dGhpbmsvdG9tMC9kYXJr.json?key=${TOMTOM_KEY}`
+      : undefined,
+    language: 'en-GB'
+  });
+
+  // Fallback dark tile style if no key
+  if (!TOMTOM_KEY) {
+    // Use public CARTO dark tiles
+    map.setStyle({
+      version: 8,
+      sources: {
+        "carto-dark": {
+          type: "raster",
+          tiles: ["https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png"],
+          tileSize: 256, attribution: '© CARTO'
+        }
+      },
+      layers: [{ id: "carto-dark-layer", type: "raster", source: "carto-dark" }]
+    });
+  }
+
+  map.on('load', () => {
+    if (TOMTOM_KEY && trafficFlowVisible) {
+      map.addTier(tt.TrafficFlowTilesTier({ key: TOMTOM_KEY, style: tt.TrafficFlowTilesTier.ABSOLUTE }));
+    }
+  });
+}
+
+function toggleLayer(pill, type) {
+  document.querySelectorAll('.map-pill').forEach(p => p.classList.remove('active'));
+  pill.classList.add('active');
+}
+
+/* ═══════════════════════════════════════
+   BUS MARKERS
+═══════════════════════════════════════ */
+function getHWColor(score) {
+  if (score >= 0.8) return 'var(--green)';
+  if (score >= 0.5) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+function renderBusMarkers(buses) {
+  if (!map) return;
+
+  buses.forEach(bus => {
+    const el = document.createElement('div');
+    el.className = `bus-marker ${bus.is_ghost ? 'ghost' : 'normal'}`;
+    el.innerHTML = bus.is_ghost ? '👻' : '🚌';
+    el.title = `${bus.trip_id} — ${bus.status}`;
+
+    // Popup content
+    const popupHTML = `
+      <div style="font-family:Inter,sans-serif;background:#0f1420;border:1px solid rgba(255,255,255,0.1);
+                  border-radius:12px;padding:14px;min-width:220px;color:#f1f5f9;">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;">
+          ${bus.is_ghost ? '👻' : '🚌'} ${bus.trip_id}
+        </div>
+        <div style="font-size:0.75rem;color:#94a3b8;margin-bottom:4px;">Route ${bus.route} · Near ${bus.near}</div>
+        <div style="display:flex;gap:10px;font-size:0.72rem;color:#64748b;margin-bottom:10px;">
+          <span>🚀 ${bus.speed} km/h</span>
+          <span>👥 ${bus.passenger_count} pax</span>
+        </div>
+        <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px;">
+          <div style="font-size:0.65rem;color:#475569;margin-bottom:4px;">HW RELIABILITY</div>
+          <div style="height:4px;background:rgba(255,255,255,0.1);border-radius:99px;">
+            <div style="height:100%;width:${Math.round(bus.hw_score*100)}%;background:${getHWColor(bus.hw_score)};border-radius:99px;"></div>
+          </div>
+          <div style="font-size:0.72rem;margin-top:4px;color:${getHWColor(bus.hw_score)};">${(bus.hw_score*100).toFixed(0)}% · ${bus.status.toUpperCase()}</div>
+        </div>
+        ${bus.is_ghost ? `<div style="margin-top:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);
+            border-radius:8px;padding:8px;font-size:0.7rem;color:#ef4444;">
+            🔴 Ghost Bus — Recovered via Collaborative Telemetry<br>
+            Confidence: ${(bus.confidence*100).toFixed(0)}%
+          </div>` : ''}
+        <div style="margin-top:8px;font-size:0.7rem;color:#22c55e;">⏱ ETA next stop: ${bus.eta_next_stop}</div>
+      </div>`;
+
+    const popup = new tt.Popup({ offset: 20, closeButton: false })
+      .setHTML(popupHTML);
+
+    if (markers[bus.trip_id]) {
+      markers[bus.trip_id].setLngLat([bus.lng, bus.lat]);
+    } else {
+      markers[bus.trip_id] = new tt.Marker({ element: el, anchor: 'center' })
+        .setLngLat([bus.lng, bus.lat])
+        .setPopup(popup)
+        .addTo(map);
+    }
+  });
+}
+
+/* ═══════════════════════════════════════
+   BUS LIST (LEFT PANEL)
+═══════════════════════════════════════ */
+function renderBusList(buses) {
+  const list = document.getElementById('bus-list');
+  list.innerHTML = buses.map(bus => `
+    <div class="bus-card ${bus.is_ghost ? 'ghost' : ''}"
+         onclick="if(markers['${bus.trip_id}']) { markers['${bus.trip_id}'].togglePopup(); map.flyTo({center:[${bus.lng},${bus.lat}],zoom:15}); }">
+      <div class="bus-header">
+        <span class="bus-route">Route ${bus.route}</span>
+        <span class="bus-status ${bus.is_ghost ? 'ghost' : 'active'}">${bus.status.replace('_',' ')}</span>
+      </div>
+      <div class="bus-id">${bus.trip_id}</div>
+      <div class="bus-meta">
+        <span>📍 ${bus.near}</span>
+        <span>🚀 ${bus.speed} km/h</span>
+        <span>👥 ${bus.passenger_count}</span>
+        <span>⏱ ${bus.eta_next_stop}</span>
+      </div>
+      <div class="hw-bar-wrap">
+        <div class="hw-bar-track">
+          <div class="hw-bar-fill"
+               style="width:${Math.round(bus.hw_score*100)}%; background:${getHWColor(bus.hw_score)};"></div>
+        </div>
+        <div class="hw-label" style="color:${getHWColor(bus.hw_score)};">${(bus.hw_score*100).toFixed(0)}%</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ═══════════════════════════════════════
+   TRAFFIC PANEL
+═══════════════════════════════════════ */
+function renderTraffic(data) {
+  const idx = data.congestion_index;
+  document.getElementById('t-index').textContent = idx;
+  document.getElementById('t-status').textContent = data.status;
+  document.getElementById('t-status').style.color = data.color;
+  document.getElementById('t-source').textContent = data.source;
+  document.getElementById('t-updated').textContent = 'Updated ' + data.updated_at;
+
+  // Ring animation
+  const circumference = 163.36;
+  const offset = circumference - (idx / 100) * circumference;
+  const ring = document.getElementById('traffic-ring-fill');
+  ring.style.strokeDashoffset = offset;
+  ring.style.stroke = data.color;
+
+  // Bottlenecks
+  const colors = { 90: '#ef4444', 70: '#f59e0b', 0: '#22c55e' };
+  const getColor = v => v >= 80 ? '#ef4444' : v >= 55 ? '#f59e0b' : '#22c55e';
+  document.getElementById('bottlenecks').innerHTML =
+    data.bottlenecks.map(b => `
+      <div class="bottleneck-row">
+        <div class="bottleneck-name">${b.name}</div>
+        <div class="bottleneck-bar-track">
+          <div class="bottleneck-bar-fill" style="width:${b.congestion}%; background:${getColor(b.congestion)};"></div>
+        </div>
+        <div class="bottleneck-pct">${b.congestion}%</div>
+      </div>`).join('');
+}
+
+/* ═══════════════════════════════════════
+   GHOST PANEL
+═══════════════════════════════════════ */
+function renderGhost(data) {
+  document.getElementById('ghost-panel').innerHTML = `
+    <div class="ghost-alert-header">
+      <span class="ghost-icon">👻</span>
+      Ghost Bus Detected — ${data.trip_id}
+    </div>
+    <div class="ghost-detail">
+      <strong style="color:var(--text-2)">Trigger:</strong> ${data.trigger}<br>
+      <strong style="color:var(--text-2)">HW Score:</strong> ${(data.hw_score*100).toFixed(0)}% (threshold: 30%)<br>
+      <strong style="color:var(--text-2)">Passenger pings used:</strong> ${data.passenger_pings_used}
+    </div>
+    <div class="ghost-recovered">
+      ✅ ${data.recovery_method} — Confidence ${(data.confidence*100).toFixed(0)}%<br>
+      📍 ${data.snapped_road} · ETA: ${data.eta_next_stop}
+    </div>`;
+}
+
+/* ═══════════════════════════════════════
+   METRICS PANEL
+═══════════════════════════════════════ */
+function renderMetrics(m) {
+  document.getElementById('s-active').textContent   = m.active_buses;
+  document.getElementById('s-ghost').textContent    = m.ghost_buses_recovered;
+  document.getElementById('s-latency').textContent  = m.inference_latency_ms;
+  document.getElementById('s-snap').textContent     = m.map_snap_accuracy_pct + '%';
+  document.getElementById('s-eta').textContent      = m.eta_accuracy_pct + '%';
+  document.getElementById('s-kafka').textContent    = m.kafka_throughput_pings_s;
+
+  document.getElementById('metric-grid').innerHTML = [
+    { val: m.inference_latency_ms + ' ms', lbl: 'GNN Inference' },
+    { val: m.redis_latency_ms + ' ms', lbl: 'Redis Fetch' },
+    { val: m.hw_reliability_avg * 100 + '%', lbl: 'HW Reliability' },
+    { val: m.kafka_throughput_pings_s + '/s', lbl: 'Kafka Pings' },
+    { val: m.ghost_buses_suppressed, lbl: 'Suppressed Ghosts' },
+    { val: m.ghost_buses_recovered, lbl: 'Recovered Ghosts' },
+    { val: m.map_snap_accuracy_pct + '%', lbl: 'Map-Snap Acc.' },
+    { val: m.eta_accuracy_pct + '%', lbl: 'ETA Accuracy' },
+  ].map(x => `
+    <div class="metric-box">
+      <div class="metric-val">${x.val}</div>
+      <div class="metric-lbl">${x.lbl}</div>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════
+   DATA FETCH LOOP
+═══════════════════════════════════════ */
+async function fetchAll() {
+  try {
+    const [buses, traffic, metrics, ghost] = await Promise.all([
+      fetch(`${API_BASE}/api/buses`).then(r=>r.json()),
+      fetch(`${API_BASE}/api/traffic`).then(r=>r.json()),
+      fetch(`${API_BASE}/api/metrics`).then(r=>r.json()),
+      fetch(`${API_BASE}/api/ghost-event`).then(r=>r.json()),
+    ]);
+
+    renderBusList(buses);
+    renderBusMarkers(buses);
+    renderTraffic(traffic);
+    renderMetrics(metrics);
+    renderGhost(ghost);
+  } catch(e) {
+    console.warn('API not available, demo mode active', e);
+  }
+}
+
+/* ═══════════════════════════════════════
+   BOOT
+═══════════════════════════════════════ */
+window.addEventListener('load', () => {
+  initMap();
+  fetchAll();
+  setInterval(fetchAll, 5000);   // Refresh every 5s
+});
+</script>
+</body>
+</html>
