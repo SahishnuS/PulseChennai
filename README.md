@@ -1,4 +1,4 @@
-# Pulse Chennai Spatial ETA & Routing Engine 🚗
+# Pulse Chennai Spatial ETA & Routing Engine 
 
 A production-grade, asynchronous spatial routing platform. This system calculates exact street-network distances using OpenStreetMap data and predicts arrival times using an ensemble Machine Learning model, all orchestrated through a distributed asynchronous queue.
 
