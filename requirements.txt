@@ -1,38 +1,38 @@
-# Pulse-Chennai: Real-Time Transit GNN Engine
-# Core
-torch>=2.2.0
-torch-geometric>=2.5.0
-torch-scatter>=2.1.2
-torch-sparse>=0.6.18
+# ════════════════════════════════════════
+# Pulse-Chennai Core Dependencies
+# ════════════════════════════════════════
+
+# API Framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-dotenv==1.0.1
+pydantic-settings==2.2.1
+
+# Async Infrastructure
+aiokafka==0.10.0
+redis[asyncio]==5.0.4
+asyncpg==0.29.0
+
+# HTTP Client (async)
+httpx==0.27.0
+
+# Serialization
+orjson==3.10.3
 
 # Geospatial
-h3>=4.0.0
-shapely>=2.0.0
+h3==3.7.7
 
-# Infrastructure
-redis>=5.0.0
-confluent-kafka>=2.3.0
-boto3>=1.34.0
-pyarrow>=15.0.0
+# ML / GNN
+torch==2.3.0
+torch-geometric==2.5.3
+numpy==1.26.4
 
-# API
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.6.0
-pydantic-settings>=2.1.0
+# Graph + Map Matching
+osmnx==1.9.3
+networkx==3.3
 
-# ML / Numerics
-numpy>=1.26.0
-scipy>=1.12.0
-scikit-learn>=1.4.0
+# Logging
+structlog==24.1.0
 
-# Google Maps
-googlemaps>=4.10.0
-
-# Monitoring
-prometheus-client>=0.20.0
-
-# Testing
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-httpx>=0.27.0
+# Data processing (existing code dependencies)
+pyarrow==16.1.0

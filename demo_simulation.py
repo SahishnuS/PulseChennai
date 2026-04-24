@@ -1,103 +1,91 @@
 """
-Pulse-Chennai Functional Demonstration
-======================================
-This script demonstrates the core logical flow of the system
-without requiring the 2.5GB+ PyTorch/CUDA installation.
+Pulse-Chennai Functional Demonstration (1-Hour Prototype)
+=========================================================
+This script acts as the "Hardware Integration Layer" for the prototype.
+It simulates multiple buses moving along routes and sends HTTP POST
+requests to our FastAPI backend (`/dashboard/api/ingest`).
+
+It intentionally injects corrupted data (Ghost Bus) to demonstrate
+the Collaborative Telemetry recovery logic.
 """
 
 import time
-import json
-from dataclasses import dataclass
-from typing import Optional
+import requests
+import random
 
-# -- Mocking the schemas and logic we built --
+API_URL = "http://localhost:8001/dashboard/api/ingest"
 
-@dataclass
-class H3Prediction:
-    h3_index: str
-    lat: float
-    lng: float
-    confidence: float
+# A simplified linear route for simulation (Guindy to Chennai Central)
+START_LAT, START_LNG = 13.0044, 80.2496
+END_LAT, END_LNG = 13.0827, 80.2707
+TOTAL_STEPS = 60  # 1 minute loop if 1 ping/sec
 
-def simulate_hardware_scorer(speed: float, jitter: float, age_s: float) -> float:
-    """Simulates the HardwareReliabilityScorer logic we wrote."""
-    score = 1.0
-    if speed > 100: score -= 0.5  # Impossible speed in Chennai traffic
-    if jitter > 50: score -= 0.3  # Jumping around
-    if age_s > 60: score -= 0.8   # Stale ping
-    return max(0.0, score)
+def interpolate(start, end, step, total_steps):
+    return start + (end - start) * (step / total_steps)
 
-def simulate_pipeline(trip_id: str, lat: float, lng: float, speed: float, jitter: float, age_s: float):
-    print(f"\n[1] Ingesting GPS Ping from {trip_id} @ ({lat:.4f}, {lng:.4f})")
+buses = [
+    {"id": "MTC-21G-001", "route": "21G", "near": "Mount Road", "step_offset": 0, "ghost_at": None},
+    {"id": "MTC-5C-002",  "route": "5C",  "near": "T. Nagar",   "step_offset": 20, "ghost_at": None},
+    # The Ghost Bus scenario: Fails at step 30
+    {"id": "MTC-GHOST-007", "route": "21G", "near": "Ashok Nagar", "step_offset": 10, "ghost_at": 30},
+]
+
+print("="*60)
+print("PULSE-CHENNAI HARDWARE TELEMETRY SIMULATOR")
+print(f"Target API: {API_URL}")
+print("="*60)
+
+step = 0
+while True:
+    print(f"\n--- Simulation Step {step} ---")
     
-    # 1. Hardware Scoring
-    hw_score = simulate_hardware_scorer(speed, jitter, age_s)
-    print(f"    ├─ AI Hardware Audit: Speed={speed}km/h, Jitter={jitter}m, Staleness={age_s}s")
-    print(f"    └─ Reliability Score: {hw_score:.2f}/1.00")
-    
-    # 2. Decision Logic
-    if hw_score < 0.3:
-        print(f"\n[2] 🚨 GHOST BUS DETECTED! (Score {hw_score:.2f} < Threshold 0.3)")
-        print("    ├─ Action: Suppressing faulty AIS 140 device...")
-        print("    └─ Action: Triggering Collaborative Telemetry (Passenger Pings)...")
-        time.sleep(1)
+    for bus in buses:
+        # Calculate current position
+        current_bus_step = (step + bus["step_offset"]) % TOTAL_STEPS
+        current_lat = interpolate(START_LAT, END_LAT, current_bus_step, TOTAL_STEPS)
+        current_lng = interpolate(START_LNG, END_LNG, current_bus_step, TOTAL_STEPS)
         
-        print("\n[3] Executing Ghost Bus Recovery Module")
-        print("    ├─ Scanning nearby H3 cells for passenger smartphone pings...")
-        print("    ├─ Found 14 passenger pings tracing route 21G.")
-        print("    └─ Executing GNN Latent State inference...")
-        time.sleep(1)
+        # Add slight natural GPS jitter
+        current_lat += random.uniform(-0.0002, 0.0002)
+        current_lng += random.uniform(-0.0002, 0.0002)
         
-        # 3. Model Output Simulation
-        res = {
-            "trip_id": trip_id,
-            "status": "recovered",
-            "estimated_h3": "896181b6b23ffff",
-            "lat": lat + 0.001,
-            "lng": lng + 0.002,
-            "snapped_road": "Anna Salai (T. Nagar)",
-            "confidence": 0.87,
-            "data_source": "collaborative_telemetry_gnn",
-            "eta_seconds": 340
-        }
-    else:
-        print(f"\n[2] ✅ Hardware Healthy (Score {hw_score:.2f} > 0.3)")
-        print("    ├─ Action: Executing Standard GNN Forward Pass...")
-        time.sleep(1)
+        speed = random.uniform(30.0, 45.0)
+        jitter = random.uniform(1.0, 5.0)
+        age_s = random.uniform(0.1, 2.0)
         
-        print("\n[3] HMM Map-Matching & ETA Prediction")
-        print("    ├─ Converting lat/lng to H3 Hex (Resolution 9)...")
-        print("    ├─ GAT Attention Layer weighting high congestion cells...")
-        print("    └─ Viterbi algorithm snapping point to road segment...")
-        time.sleep(1)
-        
-        res = {
-            "trip_id": trip_id,
-            "h3_index": "896181b6b23ffff",
-            "snapped_lat": lat + 0.0001,
-            "snapped_lng": lng + 0.0001,
-            "snapped_road": "Mount Road",
-            "confidence": 0.98,
-            "data_source": "gnn_inference",
-            "hw_reliability_score": hw_score,
-            "eta_seconds": 120
+        # Inject Ghost Bus Failure
+        is_failing = False
+        if bus["ghost_at"] is not None and current_bus_step >= bus["ghost_at"] and current_bus_step <= bus["ghost_at"] + 15:
+            # Simulate broken hardware (e.g. impossible speed, huge jitter)
+            speed = random.uniform(110.0, 150.0)
+            jitter = random.uniform(100.0, 300.0)
+            is_failing = True
+            
+        payload = {
+            "device_id": bus["id"],
+            "lat": current_lat,
+            "lng": current_lng,
+            "speed": speed,
+            "jitter": jitter,
+            "age_s": age_s,
+            "route": bus["route"],
+            "near": bus["near"]
         }
         
-    print("\n[4] API Response to Frontend:")
-    print(json.dumps(res, indent=4))
-    print("="*60)
-
-if __name__ == "__main__":
-    print("\n" + "="*60)
-    print("PULSE-CHENNAI ENGINE DEMONSTRATION")
-    print("="*60)
-    
-    # Scenario 1: Healthy Bus
-    print("\n>>> SCENARIO 1: Healthy Bus Tracking")
-    simulate_pipeline("bus_MTC_101", 13.0827, 80.2707, speed=25, jitter=5, age_s=2)
-    
-    time.sleep(2)
-    
-    # Scenario 2: Ghost Bus
-    print("\n>>> SCENARIO 2: Ghost Bus Hardware Failure")
-    simulate_pipeline("bus_MTC_404", 13.0827, 80.2707, speed=120, jitter=200, age_s=400)
+        try:
+            resp = requests.post(API_URL, json=payload, timeout=2)
+            if resp.status_code == 200:
+                data = resp.json()
+                if is_failing:
+                    print(f"🚨 [GHOST EVENT] {bus['id']} -> Sent corrupted data. API classified as Ghost: {data.get('is_ghost')}")
+                else:
+                    print(f"✅ [OK] {bus['id']} -> Sent healthy telemetry.")
+            else:
+                print(f"❌ [HTTP ERROR] {bus['id']} -> {resp.status_code}")
+        except requests.exceptions.ConnectionError:
+            print("❌ Backend is not running! Please start 'python -m pulse_chennai.api.dashboard_server'")
+            time.sleep(2)
+            break
+            
+    step += 1
+    time.sleep(1) # Send pings every 1 second

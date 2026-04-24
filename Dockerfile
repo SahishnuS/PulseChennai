@@ -74,22 +74,22 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application code
 WORKDIR /app
-COPY . /app/pulse_chennai/
+COPY . /app/
 
 # Create models directory
 RUN mkdir -p /app/models
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
 
 # Run with Uvicorn
 # Workers = 1 for GPU (CUDA contexts are per-process)
-CMD ["uvicorn", "pulse_chennai.api.main:app", \
+CMD ["uvicorn", "api.dashboard_server:app", \
      "--host", "0.0.0.0", \
-     "--port", "8000", \
+     "--port", "8001", \
      "--workers", "1", \
      "--log-level", "info"]

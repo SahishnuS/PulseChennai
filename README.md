@@ -1,75 +1,156 @@
-<div align="center">
-  <h1>🚇 Pulse-Chennai</h1>
-  <h3>A Cloud-Native, Event-Driven Geospatial Engine for Reliable Urban Transit</h3>
-</div>
+# Pulse-Chennai
 
-<p align="center">
-  Pulse-Chennai is a next-generation public transit tracking system built to eliminate <strong>"Ghost Buses"</strong> and provide ultra-accurate ETAs. It upgrades legacy transit tracking by fusing unreliable AIS 140 hardware telemetry with <strong>TomTom Live Traffic APIs</strong>, Crowdsourced Passenger Wi-Fi/GPS pings, and an H3-indexed Graph Neural Network (GNN).
-</p>
+A cloud-native, event-driven geospatial intelligence engine for reliable urban transit in Chennai. Detects and recovers "Ghost Buses" using multi-source data fusion: AIS-140 hardware auditing, crowdsourced passenger telemetry, and TomTom traffic flow integration.
 
----
+## Architecture
 
-## 🏗️ System Architecture
+```
+                              ┌──────────────────┐
+                              │   AIS-140 GPS    │
+                              │   Simulator      │
+                              └────────┬─────────┘
+                                       │ POST /api/ingest
+                              ┌────────▼─────────┐
+                              │  Kafka Producer   │
+                              │  bus-gps-pings    │
+                              └────────┬─────────┘
+                                       │
+                    ┌──────────────────▼──────────────────┐
+                    │         Kafka Consumer               │
+                    │  ┌─────────────────────────────┐    │
+                    │  │ Hardware Reliability Scorer  │    │
+                    │  │ (Jitter + Speed + Freq + Pos)│    │
+                    │  └──────────┬──────────────────┘    │
+                    │             │                        │
+                    │    hw_score < 0.3?                   │
+                    │    ┌───────┴───────┐                 │
+                    │    │ YES           │ NO              │
+                    │    ▼               ▼                 │
+                    │  Ghost Bus    Standard Update        │
+                    │  Detection   → Redis + DB            │
+                    │    │                                  │
+                    │    ├─ Passenger Ping Fusion           │
+                    │    ├─ TomTom Dead Reckoning          │
+                    │    └─ WebSocket Publish              │
+                    └─────────────────────────────────────┘
+                                       │
+                    ┌──────────────────▼──────────────────┐
+                    │         Frontend Dashboard           │
+                    │  WebSocket /ws/live                   │
+                    │  TomTom Map + Glassmorphism UI        │
+                    │  Ghost alerts + Traffic bars          │
+                    └──────────────────────────────────────┘
+```
 
-Pulse-Chennai transitions away from traditional CRUD-based tracking into a high-throughput **Lambda Architecture** designed for geospatial intelligence:
+## Tech Stack
 
-1. **The Ingestion Pipeline (Kafka):** Raw GPS pings from buses and passengers stream into Kafka topics.
-2. **Hardware Reliability Scorer:** A real-time audit module assigns health scores to AIS 140 devices based on jitter, update frequency, and impossible speeds. Devices scoring `< 0.3` are flagged as **Ghost Buses**.
-3. **Collaborative Telemetry (Data Fusion):** When a bus hardware fails (Ghost Bus), the system automatically blends nearby anonymized passenger smartphone pings and TomTom Traffic flow data to estimate the actual position.
-4. **Speed Layer (Redis):** Caches live spatial node states and bus locations for sub-millisecond access.
-5. **Batch Layer (AWS S3 & Parquet):** Cold-stores petabytes of historical trajectories keyed by Uber H3 cells for model retraining.
-6. **Spatial-Temporal GNN:** A 3-layer Graph Attention Network (GAT) with LSTM time-encoding processes H3 hexagons to predict localized bottlenecks and accurate ETAs.
-7. **HMM Map-Matching:** Viterbi Dynamic Programming snaps the GNN's predicted latent coordinates back onto the actual OpenStreetMap road network.
+| Layer | Technology |
+|-------|-----------|
+| API | FastAPI + Uvicorn (async) |
+| Streaming | Apache Kafka (aiokafka) |
+| Cache | Redis (redis.asyncio) |
+| Database | PostgreSQL + PostGIS (asyncpg) |
+| ML | PyTorch Geometric (GAT + LSTM) |
+| Traffic | TomTom Traffic Flow API |
+| Map | TomTom Web SDK / Leaflet (CARTO dark) |
+| Frontend | Vanilla JS + CSS Glassmorphism |
 
-## 💻 Tech Stack
+## Prerequisites
 
-* **ML / AI Engine:** PyTorch, PyTorch Geometric (PyG), Scikit-Learn
-* **Spatial & Tracking:** Uber H3 (Hexagonal Hierarchical Geospatial Indexing), TomTom Traffic Flow API
-* **Streaming & Data:** Apache Kafka, Redis, AWS S3, Apache Parquet
-* **Backend:** FastAPI, Uvicorn, Pydantic
-* **Frontend Dashboard:** HTML, Vanilla JS, CSS Glassmorphism, TomTom Maps Web SDK
-* **Deployment:** Docker (CUDA 12.1 multi-stage), Kubernetes (K8s)
+- Python 3.11+
+- Docker & Docker Compose (for Kafka, Redis, PostgreSQL)
+- TomTom API key (free at [developer.tomtom.com](https://developer.tomtom.com))
 
-## ✨ Core Innovations
+## Quick Start
 
-* **Ghost Bus Recovery:** Uses latent state estimation and passenger crowdsourcing to track buses even when their official GPS hardware dies.
-* **H3 K-Ring Graph:** Models the city of Chennai not as disconnected roads, but as a dynamic, interconnected graph of hex cells passing congestion "messages" to their neighbors.
-* **TomTom Traffic Integration:** Replaces static time-of-day guesses with live `flowSegmentData`, fetching real-time gridlock ratios across key Chennai bottlenecks.
-* **Kendall Multi-Task Loss:** The AI model simultaneously predicts graph node congestion (ranking) and Bus ETA (regression), balancing its own loss weights automatically during training.
-
----
-
-## 🚀 Local Development Setup
-
-### 1. Requirements
-Ensure you have Docker installed (for Redis/Kafka) and Python 3.10+.
-
-### 2. Clone and Install
 ```bash
-git clone https://github.com/UnisysUIP/2026-Pulse-Chennai...
-cd repo/pulse_chennai
+# 1. Clone & configure
+git clone <repo>
+cd pulse-chennai
+cp .env.example .env
+# Edit .env: set TOMTOM_API_KEY
+
+# 2. Start infrastructure
+docker-compose up -d
+
+# 3. Install dependencies
 pip install -r requirements.txt
+
+# 4. Start the server
+uvicorn api.dashboard_server:app --host 0.0.0.0 --port 8001
+
+# 5. Open dashboard
+open http://localhost:8001
+
+# 6. Run the simulator (separate terminal)
+python -m simulator.demo_simulation
 ```
 
-### 3. Environment Variables
-No mandatory API keys are required for the local demo (it will run using synthetic traffic generation), but for the full experience, add your TomTom API key in `config/settings.py` or export it:
+### Without Docker (Degraded Mode)
+
+The system gracefully degrades without infrastructure:
+- **No Kafka**: Messages processed directly (HTTP fallback)
+- **No Redis**: In-memory state dictionary
+- **No PostgreSQL**: Persistence disabled, warnings logged
+- **No TomTom key**: Synthetic time-of-day traffic data
+
 ```bash
-export TOMTOM_API_KEY="your_tomtom_key_here"
+# Just run:
+uvicorn api.dashboard_server:app --host 0.0.0.0 --port 8001
+python -m simulator.demo_simulation
 ```
 
-### 4. Start the Dashboard & API Server
+## API Reference
+
+### `POST /api/ingest`
+Receive a GPS ping from an AIS-140 device.
 ```bash
-# This starts the FastAPI backend and serves the glassmorphism UI
-python -m uvicorn pulse_chennai.api.dashboard_server:app --host 0.0.0.0 --port 8001 --reload
+curl -X POST http://localhost:8001/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"MTC-21G-001","lat":13.0827,"lng":80.2707,"speed":25,"route":"21G"}'
 ```
-Navigate to **http://localhost:8001** to view the live tracking map, TomTom traffic rings, metrics panel, and Ghost Bus detection alerts.
 
-### 5. Run the Simulation script (ML + Graph Engine)
-Looking to see the core engine crunch data? Run the demo script:
+### `POST /api/passenger-ping`
+Receive an anonymized passenger smartphone ping.
 ```bash
-python pulse_chennai/demo_simulation.py
+curl -X POST http://localhost:8001/api/passenger-ping \
+  -H "Content-Type: application/json" \
+  -d '{"lat":13.082,"lon":80.270,"accuracy_m":10,"session_token":"uuid-here"}'
 ```
-This simulates a Kafka stream, triggers a ghost bus event, performs data fusion, and runs the PyTorch SpatialGNN over the H3 graph.
 
----
-*Architected for the Unisys Innovation Program Hackathon 2026.*
+### `GET /api/buses`
+Get all active bus states from the speed layer.
+
+### `GET /api/traffic`
+Get current TomTom traffic summary for Chennai segments.
+
+### `GET /api/metrics`
+System-wide metrics: active/ghost/recovered buses, health.
+
+### `GET /api/ghost-events`
+Recent ghost bus detection events.
+
+### `GET /health`
+System health check (DB, Redis, Kafka, ML status).
+
+### `WebSocket /ws/live`
+Real-time bus updates pushed via Redis pub/sub.
+
+## How Ghost Bus Detection Works
+
+1. **Hardware Reliability Scoring**: Every GPS ping is scored on 4 dimensions:
+   - Jitter Score (σ of consecutive positions)
+   - Update Frequency (median inter-ping gap)
+   - Impossible Speed (>120 km/h on Chennai roads)
+   - Position Consistency (Haversine teleportation check)
+
+2. **Weighted composite**: `score = 0.30·jitter + 0.25·freq + 0.30·speed + 0.15·position`
+
+3. **EMA smoothing**: `rolling_score = 0.95·prev + 0.05·raw` (filters transient glitches)
+
+4. **Threshold**: If `score < 0.3`, the bus is flagged as a **Ghost Bus**
+
+5. **Recovery** (in priority order):
+   - **Passenger Telemetry**: ≥3 anonymized smartphone pings within 200m → compute centroid → 70/30 weighted fusion
+   - **TomTom Dead Reckoning**: Project forward using live traffic speed + last known heading
+   - **Freeze**: Hold at last known position until signal recovers

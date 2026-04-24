@@ -1,777 +1,660 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pulse-Chennai · Transit Intelligence Engine</title>
-  <meta name="description" content="Real-time bus tracking for Chennai MTC. Ghost Bus detection, GNN-powered ETAs, and TomTom live traffic.">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse-Chennai | Real-Time Transit Intelligence</title>
+    <meta name="description" content="Cloud-native geospatial engine for reliable urban transit in Chennai">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css">
+    <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #050b14;
+            --bg-card: rgba(10, 15, 30, 0.7);
+            --bg-glass: rgba(15, 23, 42, 0.45);
+            --border: rgba(148, 163, 184, 0.15);
+            --border-glow: rgba(59, 130, 246, 0.3);
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-dim: #64748b;
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.4);
+            --accent-red: #f43f5e;
+            --accent-red-glow: rgba(244, 63, 94, 0.6);
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+            --gradient-card: linear-gradient(145deg, rgba(30,41,59,0.5) 0%, rgba(15,23,42,0.8) 100%);
+        }
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: var(--bg-primary); 
+            color: var(--text-primary); 
+            overflow: hidden; 
+            height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+        #app { display: flex; height: 100vh; }
 
-  <!-- TomTom Maps SDK -->
-  <link rel='stylesheet' type='text/css' href='https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css'>
-  <script src='https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js'></script>
+        /* ── Map ── */
+        #map { flex: 1; position: relative; background: #050b14; }
+        /* Create a flawless dark mode by inverting the default TomTom map */
+        #map canvas { filter: invert(100%) hue-rotate(180deg) contrast(1.2) saturate(1.2); }
+        
+        .map-overlay-top {
+            position: absolute; top: 24px; left: 24px; z-index: 100;
+            display: flex; gap: 12px; align-items: center;
+        }
+        .brand {
+            background: var(--bg-card); 
+            backdrop-filter: blur(24px); 
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 0 0 1px var(--border-glow);
+            border-radius: 16px; 
+            padding: 12px 24px; 
+            display: flex; align-items: center; gap: 14px;
+        }
+        .brand-icon {
+            width: 32px; height: 32px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        }
+        .brand-icon svg { width: 20px; height: 20px; fill: white; }
+        .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .brand span { font-size: 11px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 1px;}
+        
+        .ws-badge {
+            background: var(--bg-card); backdrop-filter: blur(24px); border: 1px solid var(--border);
+            border-radius: 12px; padding: 8px 16px; font-size: 12px; font-weight: 600; color: var(--text-secondary);
+            display: flex; align-items: center; gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .ws-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .ws-connected { background: var(--accent-green); box-shadow: 0 0 10px var(--accent-green-glow); }
+        .ws-disconnected { background: var(--accent-red); box-shadow: 0 0 10px var(--accent-red-glow); animation: pulse-dot 1s infinite; }
 
-  <style>
-    /* ═══════════════════════════════════════
-       DESIGN TOKENS
-    ═══════════════════════════════════════ */
-    :root {
-      --bg:        #07090f;
-      --surface:   #0f1420;
-      --surface2:  #161c2e;
-      --border:    rgba(255,255,255,0.07);
-      --border2:   rgba(255,255,255,0.12);
+        /* ── Right Panel ── */
+        #panel {
+            width: 420px; 
+            background: rgba(5, 11, 20, 0.85); 
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border-left: 1px solid rgba(255,255,255,0.05);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            overflow-y: auto; 
+            display: flex; 
+            flex-direction: column;
+            z-index: 10;
+        }
+        .panel-section { padding: 24px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .panel-section:last-child { border-bottom: none; }
+        .panel-section h2 { 
+            font-size: 12px; 
+            text-transform: uppercase; 
+            letter-spacing: 2px; 
+            color: var(--text-dim); 
+            margin-bottom: 16px; 
+            font-weight: 700; 
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .panel-section h2::before {
+            content: ''; display: block; width: 4px; height: 12px; border-radius: 2px; background: var(--accent-blue);
+        }
 
-      --accent:    #6366f1;     /* Indigo */
-      --accent-g:  #8b5cf6;    /* Violet */
-      --green:     #22c55e;
-      --amber:     #f59e0b;
-      --red:       #ef4444;
-      --cyan:      #06b6d4;
+        /* ── Metric Cards ── */
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .metric-card {
+            background: var(--gradient-card); 
+            border: 1px solid rgba(255,255,255,0.05); 
+            border-radius: 16px;
+            padding: 16px; 
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.1); }
+        .metric-value { font-size: 36px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
+        .metric-label { font-size: 11px; color: var(--text-secondary); margin-top: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .metric-green { color: var(--accent-green); text-shadow: 0 0 15px var(--accent-green-glow); }
+        .metric-red { color: var(--accent-red); text-shadow: 0 0 15px var(--accent-red-glow); }
+        .metric-yellow { color: var(--accent-yellow); }
+        .metric-blue { color: var(--accent-blue); }
 
-      --text-1:    #f1f5f9;
-      --text-2:    #94a3b8;
-      --text-3:    #475569;
+        /* ── Bus List ── */
+        .bus-list { display: flex; flex-direction: column; gap: 10px; }
+        .bus-item {
+            display: flex; align-items: center; gap: 14px; padding: 14px;
+            background: var(--bg-glass); border: 1px solid rgba(255,255,255,0.03); border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;
+        }
+        .bus-item:hover { 
+            border-color: rgba(59, 130, 246, 0.5); 
+            transform: translateX(4px); 
+            background: rgba(30, 41, 59, 0.8);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .bus-item-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; position: relative; }
+        .bus-item-dot::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid; opacity: 0; }
+        .bus-item-dot.active { background: var(--accent-green); box-shadow: 0 0 10px var(--accent-green-glow); }
+        .bus-item-dot.ghost { background: var(--accent-red); box-shadow: 0 0 15px var(--accent-red-glow); animation: pulse-dot-fast 0.6s infinite; }
+        .bus-item-dot.ghost::after { border-color: var(--accent-red); animation: ripple 1.2s infinite; }
+        .bus-item-dot.recovered { background: var(--accent-yellow); box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+        .bus-info { flex: 1; min-width: 0; }
+        .bus-id { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+        .bus-meta { font-size: 11px; color: var(--text-dim); display: flex; gap: 8px; align-items: center; }
+        .meta-tag { background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; font-weight: 600; color: var(--text-secondary); }
+        .bus-hw { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: flex-end; }
+        .bus-hw-label { font-size: 9px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 2px; }
 
-      --r:         12px;
-      --r-lg:      18px;
-      --shadow:    0 8px 32px rgba(0,0,0,0.5);
-    }
+        /* ── Traffic Bars ── */
+        .traffic-bars { display: flex; flex-direction: column; gap: 12px; }
+        .traffic-bar-item { display: flex; align-items: center; gap: 12px; }
+        .traffic-bar-label { font-size: 11px; font-weight: 500; color: var(--text-secondary); width: 120px; text-align: right; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .traffic-bar-track { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; position: relative; }
+        .traffic-bar-fill { height: 100%; border-radius: 4px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
+        .traffic-bar-fill::after { content: ''; position: absolute; top:0; left:0; right:0; bottom:0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); animation: shimmer 2s infinite; }
+        .traffic-bar-value { font-size: 12px; font-weight: 700; color: var(--text-primary); width: 55px; font-variant-numeric: tabular-nums; text-align: right; }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { font-size: 14px; }
+        /* ── Ghost Alerts ── */
+        .ghost-alerts { display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+        .ghost-alerts::-webkit-scrollbar { width: 4px; }
+        .ghost-alerts::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+        
+        .ghost-alert {
+            padding: 14px; 
+            background: linear-gradient(145deg, rgba(244, 63, 94, 0.1) 0%, rgba(15, 23, 42, 0.8) 100%);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-left: 3px solid var(--accent-red);
+            border-radius: 12px; 
+            animation: slideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .ghost-alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .ghost-alert-bus { font-size: 14px; font-weight: 800; color: var(--accent-red); display: flex; align-items: center; gap: 6px; }
+        .ghost-alert-bus svg { width: 14px; height: 14px; fill: currentColor; }
+        .ghost-alert-time { font-size: 10px; color: var(--text-dim); font-weight: 600; }
+        .ghost-alert-body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .ghost-alert-recovery { color: var(--accent-yellow); font-weight: 600; }
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg);
-      color: var(--text-1);
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
+        /* ── Animations ── */
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+        @keyframes pulse-dot-fast { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.3; transform: scale(0.7); } }
+        @keyframes ripple { 0% { inset: -2px; opacity: 1; } 100% { inset: -12px; opacity: 0; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 99px; }
+        /* ── Map Popups ── */
+        .bus-popup { font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.6; color: #1e293b; padding: 4px; }
+        .bus-popup strong { font-weight: 700; font-size: 15px; display: block; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;}
+        .bus-popup .ghost-tag { color: #f43f5e; font-weight: 800; display: inline-block; background: rgba(244, 63, 94, 0.1); padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; vertical-align: text-bottom;}
+        .bus-popup .ok-tag { color: #10b981; font-weight: 800; display: inline-block; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; vertical-align: text-bottom;}
+        .bus-popup-row { display: flex; justify-content: space-between; margin-top: 4px; }
+        .bus-popup-label { color: #64748b; font-weight: 600; font-size: 11px; text-transform: uppercase;}
 
-    /* ═══════════════════════════════════════
-       HEADER
-    ═══════════════════════════════════════ */
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      height: 60px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(7,9,15,0.95);
-      backdrop-filter: blur(16px);
-      position: sticky; top: 0; z-index: 100;
-    }
+        /* ── Premium Custom SVG Markers ── */
+        .map-marker-container {
+            width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; position: relative;
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .map-marker-container:hover { transform: scale(1.2); z-index: 1000; }
+        
+        .marker-core {
+            width: 16px; height: 16px; border-radius: 50%;
+            border: 2.5px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.6);
+            position: relative; z-index: 2;
+        }
+        .marker-aura {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, transparent 60%);
+            z-index: 1; opacity: 0.5;
+        }
+        
+        .marker-active .marker-core { background: var(--accent-green); }
+        .marker-active .marker-aura { background: radial-gradient(circle, var(--accent-green-glow) 0%, transparent 70%); animation: pulse-dot 2s infinite; }
+        
+        .marker-ghost .marker-core { background: var(--accent-red); }
+        .marker-ghost .marker-aura { background: radial-gradient(circle, var(--accent-red-glow) 0%, transparent 70%); animation: ripple 0.8s infinite; }
+        
+        .marker-recovered .marker-core { background: var(--accent-yellow); }
+        .marker-recovered .marker-aura { background: radial-gradient(circle, rgba(245, 158, 11, 0.4) 0%, transparent 70%); }
+        
+        /* TomTom attribution fix for dark mode */
+        .tt-map-attribution { background: rgba(0,0,0,0.5) !important; color: #fff !important; }
 
-    .logo {
-      display: flex; align-items: center; gap: 10px;
-      font-weight: 800; font-size: 1.2rem; color: var(--text-1);
-    }
-    .logo-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent);
-      animation: pulse-dot 2s ease-in-out infinite;
-    }
-    @keyframes pulse-dot {
-      0%,100% { box-shadow: 0 0 6px var(--accent); }
-      50%      { box-shadow: 0 0 18px var(--accent), 0 0 32px var(--accent-g); }
-    }
-
-    .header-meta {
-      display: flex; align-items: center; gap: 20px;
-    }
-    .live-badge {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25);
-      padding: 4px 12px; border-radius: 99px;
-      font-size: 0.75rem; font-weight: 600; color: var(--red);
-    }
-    .live-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--red);
-      animation: blink 1s step-end infinite;
-    }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-
-    .clock {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85rem; color: var(--text-2);
-    }
-
-    .tomtom-badge {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2);
-      padding: 4px 12px; border-radius: 99px;
-      font-size: 0.72rem; font-weight: 600; color: var(--accent);
-    }
-
-    /* ═══════════════════════════════════════
-       LAYOUT
-    ═══════════════════════════════════════ */
-    .layout {
-      display: grid;
-      grid-template-columns: 300px 1fr 300px;
-      grid-template-rows: auto 1fr;
-      height: calc(100vh - 60px);
-    }
-
-    /* Top stat bar spans all columns */
-    .stat-bar {
-      grid-column: 1 / -1;
-      display: flex; gap: 1px;
-      border-bottom: 1px solid var(--border);
-      background: var(--border);
-    }
-    .stat-item {
-      flex: 1;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 14px 0;
-      background: var(--surface);
-      gap: 2px;
-      transition: background 0.2s;
-    }
-    .stat-item:hover { background: var(--surface2); }
-    .stat-value {
-      font-size: 1.6rem; font-weight: 800;
-      background: linear-gradient(135deg, var(--accent), var(--accent-g));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .stat-value.green { background: linear-gradient(135deg, #22c55e, #10b981);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .stat-value.amber { background: linear-gradient(135deg, #f59e0b, #f97316);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .stat-value.red   { background: linear-gradient(135deg, #ef4444, #f43f5e);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .stat-label { font-size: 0.7rem; color: var(--text-3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
-
-    /* Left Panel */
-    .left-panel {
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-      display: flex; flex-direction: column;
-    }
-
-    /* Center Map */
-    .map-area {
-      position: relative;
-      overflow: hidden;
-    }
-    #map {
-      width: 100%; height: 100%;
-    }
-
-    /* Right Panel */
-    .right-panel {
-      background: var(--surface);
-      border-left: 1px solid var(--border);
-      overflow-y: auto;
-      display: flex; flex-direction: column;
-    }
-
-    /* ═══════════════════════════════════════
-       PANEL SECTIONS
-    ═══════════════════════════════════════ */
-    .panel-section {
-      border-bottom: 1px solid var(--border);
-      padding: 16px;
-    }
-    .section-title {
-      font-size: 0.7rem; font-weight: 700; color: var(--text-3);
-      text-transform: uppercase; letter-spacing: 0.08em;
-      margin-bottom: 12px;
-      display: flex; align-items: center; gap: 6px;
-    }
-    .section-title::after {
-      content: ''; flex: 1;
-      height: 1px; background: var(--border);
-    }
-
-    /* ═══════════════════════════════════════
-       BUS CARDS
-    ═══════════════════════════════════════ */
-    #bus-list { display: flex; flex-direction: column; gap: 8px; }
-
-    .bus-card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--r);
-      padding: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-      position: relative; overflow: hidden;
-    }
-    .bus-card:hover {
-      border-color: var(--border2);
-      transform: translateX(2px);
-      box-shadow: -4px 0 16px rgba(99,102,241,0.12);
-    }
-    .bus-card.ghost {
-      border-color: rgba(239,68,68,0.3);
-      background: rgba(239,68,68,0.06);
-    }
-    .bus-card.ghost::before {
-      content: '';
-      position: absolute; inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(239,68,68,0.04));
-    }
-    .bus-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 8px;
-    }
-    .bus-route {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem; font-weight: 600;
-      background: rgba(99,102,241,0.15); color: var(--accent);
-      padding: 2px 8px; border-radius: 6px;
-    }
-    .bus-status {
-      font-size: 0.65rem; font-weight: 600; padding: 2px 8px; border-radius: 99px;
-    }
-    .bus-status.active  { background: rgba(34,197,94,0.15); color: var(--green); }
-    .bus-status.ghost   { background: rgba(239,68,68,0.15); color: var(--red); }
-    .bus-status.recovered { background: rgba(245,158,11,0.15); color: var(--amber); }
-    .bus-id {
-      font-size: 0.78rem; color: var(--text-2); font-weight: 500;
-      margin-bottom: 4px;
-    }
-    .bus-meta {
-      display: flex; gap: 10px; flex-wrap: wrap;
-      font-size: 0.68rem; color: var(--text-3);
-    }
-    .bus-meta span { display: flex; align-items: center; gap: 3px; }
-
-    /* HW Score Bar */
-    .hw-bar-wrap {
-      margin-top: 8px;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .hw-bar-track {
-      flex: 1; height: 3px; border-radius: 99px;
-      background: var(--border2); overflow: hidden;
-    }
-    .hw-bar-fill {
-      height: 100%; border-radius: 99px;
-      transition: width 0.5s ease;
-    }
-    .hw-label { font-size: 0.65rem; color: var(--text-3); font-family: 'JetBrains Mono', monospace; min-width: 34px; text-align: right; }
-
-    /* ═══════════════════════════════════════
-       TRAFFIC PANEL
-    ═══════════════════════════════════════ */
-    .traffic-meter {
-      display: flex; align-items: center; gap: 12px;
-      margin-bottom: 12px;
-    }
-    .traffic-ring {
-      position: relative; width: 64px; height: 64px; flex-shrink: 0;
-    }
-    .traffic-ring svg { transform: rotate(-90deg); }
-    .traffic-ring-label {
-      position: absolute; inset: 0;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85rem; font-weight: 700; color: var(--text-1);
-    }
-    .traffic-ring-label small { font-size: 0.55rem; color: var(--text-3); font-family: 'Inter', sans-serif; }
-    .traffic-info-col { flex: 1; }
-    .traffic-status-label {
-      font-size: 1rem; font-weight: 700; margin-bottom: 2px;
-    }
-    .traffic-source { font-size: 0.7rem; color: var(--text-3); }
-    .traffic-updated { font-size: 0.65rem; color: var(--text-3); margin-top: 2px;
-      font-family: 'JetBrains Mono', monospace; }
-
-    /* Bottleneck rows */
-    .bottleneck-row {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 8px; font-size: 0.75rem;
-    }
-    .bottleneck-name { flex: 1; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .bottleneck-bar-track {
-      width: 80px; height: 4px; border-radius: 99px;
-      background: var(--border2); overflow: hidden; flex-shrink: 0;
-    }
-    .bottleneck-bar-fill { height: 100%; border-radius: 99px; }
-    .bottleneck-pct {
-      font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
-      color: var(--text-3); min-width: 32px; text-align: right;
-    }
-
-    /* ═══════════════════════════════════════
-       METRICS PANEL
-    ═══════════════════════════════════════ */
-    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .metric-box {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: var(--r); padding: 12px;
-    }
-    .metric-val {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 1.25rem; font-weight: 700; color: var(--text-1);
-      margin-bottom: 2px;
-    }
-    .metric-lbl { font-size: 0.65rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
-
-    /* ═══════════════════════════════════════
-       GHOST EVENT ALERT
-    ═══════════════════════════════════════ */
-    .ghost-alert {
-      background: rgba(239,68,68,0.08);
-      border: 1px solid rgba(239,68,68,0.25);
-      border-radius: var(--r);
-      padding: 14px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .ghost-alert-header {
-      display: flex; align-items: center; gap: 8px;
-      font-weight: 700; font-size: 0.85rem; color: var(--red);
-    }
-    .ghost-icon { font-size: 1rem; }
-    .ghost-detail { font-size: 0.72rem; color: var(--text-2); line-height: 1.6; }
-    .ghost-recovered {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2);
-      border-radius: 8px; padding: 8px 10px;
-      font-size: 0.72rem; color: var(--green);
-    }
-
-    /* ═══════════════════════════════════════
-       MAP OVERLAYS
-    ═══════════════════════════════════════ */
-    .map-controls {
-      position: absolute; top: 14px; left: 14px; z-index: 10;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .map-pill {
-      background: rgba(15,20,32,0.92);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border2);
-      border-radius: 99px; padding: 6px 14px;
-      font-size: 0.72rem; font-weight: 600; color: var(--text-2);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .map-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    .map-pill:hover:not(.active) { border-color: var(--border2); color: var(--text-1); }
-
-    /* Marker */
-    .bus-marker {
-      width: 32px; height: 32px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 14px;
-      border: 2px solid rgba(255,255,255,0.25);
-      cursor: pointer;
-      transition: transform 0.2s;
-    }
-    .bus-marker:hover { transform: scale(1.2); }
-    .bus-marker.normal { background: radial-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 0 16px rgba(99,102,241,0.6); }
-    .bus-marker.ghost  { background: radial-gradient(135deg, #ef4444, #f43f5e); box-shadow: 0 0 16px rgba(239,68,68,0.6); animation: ghost-pulse 1.5s ease-in-out infinite; }
-    @keyframes ghost-pulse {
-      0%,100% { box-shadow: 0 0 8px rgba(239,68,68,0.5); }
-      50%      { box-shadow: 0 0 24px rgba(239,68,68,0.9); }
-    }
-
-    /* Popup */
-    .tt-popup { font-family: 'Inter', sans-serif !important; }
-
-    /* ═══════════════════════════════════════
-       RESPONSIVE
-    ═══════════════════════════════════════ */
-    @media (max-width: 1100px) {
-      .layout { grid-template-columns: 240px 1fr; }
-      .right-panel { display: none; }
-    }
-    @media (max-width: 720px) {
-      .layout { grid-template-columns: 1fr; grid-template-rows: 300px 1fr; }
-      .left-panel { display: none; }
-      .stat-bar { flex-wrap: wrap; }
-    }
-  </style>
+        #panel::-webkit-scrollbar { width: 6px; }
+        #panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        #panel::-webkit-scrollbar-track { background: transparent; }
+    </style>
 </head>
 <body>
-
-<!-- ═══════════════════════════════════ HEADER ═══════════════════════════════════ -->
-<header>
-  <div class="logo">
-    <div class="logo-dot"></div>
-    Pulse · Chennai
-    <span style="font-weight:300; color: var(--text-3); font-size:0.8rem; margin-left: 6px;">Transit Intelligence</span>
-  </div>
-  <div class="header-meta">
-    <div class="tomtom-badge">⬡ TomTom Traffic</div>
-    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
-    <div class="clock" id="clock">—</div>
-  </div>
-</header>
-
-<div class="layout">
-
-  <!-- ─────────── TOP STAT BAR ─────────── -->
-  <div class="stat-bar">
-    <div class="stat-item">
-      <div class="stat-value green" id="s-active">—</div>
-      <div class="stat-label">Active Buses</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value red" id="s-ghost">—</div>
-      <div class="stat-label">Ghost Recovered</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value" id="s-latency">—</div>
-      <div class="stat-label">GNN Latency ms</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value green" id="s-snap">—</div>
-      <div class="stat-label">Map-Snap Acc.</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value amber" id="s-eta">—</div>
-      <div class="stat-label">ETA Accuracy</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value" id="s-kafka">—</div>
-      <div class="stat-label">Kafka Pings/s</div>
-    </div>
-  </div>
-
-  <!-- ─────────── LEFT PANEL ─────────── -->
-  <div class="left-panel">
-    <div class="panel-section">
-      <div class="section-title">Live Buses</div>
-      <div id="bus-list">
-        <div style="color:var(--text-3); font-size:0.8rem; text-align:center; padding:20px;">Loading...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─────────── MAP ─────────── -->
-  <div class="map-area">
-    <div class="map-controls">
-      <div class="map-pill active" onclick="toggleLayer(this,'traffic')" id="pill-traffic">🚦 Traffic Layer</div>
-      <div class="map-pill" onclick="toggleLayer(this,'satellite')" id="pill-sat">🛰 Satellite</div>
-    </div>
-    <div id="map"></div>
-  </div>
-
-  <!-- ─────────── RIGHT PANEL ─────────── -->
-  <div class="right-panel">
-
-    <!-- TomTom Traffic -->
-    <div class="panel-section">
-      <div class="section-title">TomTom Traffic</div>
-      <div class="traffic-meter">
-        <div class="traffic-ring">
-          <svg width="64" height="64" viewBox="0 0 64 64">
-            <circle cx="32" cy="32" r="26" fill="none" stroke="var(--border2)" stroke-width="6"/>
-            <circle cx="32" cy="32" r="26" fill="none" stroke="#ef4444" stroke-width="6"
-              stroke-dasharray="163.36" id="traffic-ring-fill"
-              stroke-dashoffset="163.36" stroke-linecap="round"/>
-          </svg>
-          <div class="traffic-ring-label">
-            <span id="t-index">—</span>
-            <small>%</small>
-          </div>
+<div id="app">
+    <div id="map">
+        <div class="map-overlay-top">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                </div>
+                <div>
+                    <h1>Pulse-Chennai</h1>
+                    <span>Geospatial Intelligence</span>
+                </div>
+            </div>
+            <div class="ws-badge">
+                <div class="ws-dot" id="ws-indicator"></div>
+                <span id="ws-status">Initializing...</span>
+            </div>
         </div>
-        <div class="traffic-info-col">
-          <div class="traffic-status-label" id="t-status">—</div>
-          <div class="traffic-source" id="t-source">TomTom Traffic Flow API</div>
-          <div class="traffic-updated" id="t-updated">—</div>
+    </div>
+    <div id="panel">
+        <div class="panel-section">
+            <h2>System Telemetry</h2>
+            <div class="metrics-grid">
+                <div class="metric-card"><div class="metric-value metric-green" id="m-active">0</div><div class="metric-label">Active Fleet</div></div>
+                <div class="metric-card"><div class="metric-value metric-red" id="m-ghost">0</div><div class="metric-label">Ghost Anomalies</div></div>
+                <div class="metric-card"><div class="metric-value metric-blue" id="m-health">0%</div><div class="metric-label">Hardware Integrity</div></div>
+                <div class="metric-card"><div class="metric-value metric-yellow" id="m-recovered">0</div><div class="metric-label">Fused Recovery</div></div>
+            </div>
         </div>
-      </div>
-      <div id="bottlenecks"></div>
+        <div class="panel-section">
+            <h2>Live Tracking</h2>
+            <div class="bus-list" id="bus-list">
+                 <div style="color:var(--text-dim);font-size:12px;text-align:center;padding:20px;">Awaiting telemetry...</div>
+            </div>
+        </div>
+        <div class="panel-section">
+            <h2>Live Flow Speeds</h2>
+            <div class="traffic-bars" id="traffic-bars">
+                <div style="color:var(--text-dim);font-size:12px;text-align:center;padding:20px;">Aggregating TomTom Flow...</div>
+            </div>
+        </div>
+        <div class="panel-section" style="flex:1;">
+            <h2>Event Stream</h2>
+            <div class="ghost-alerts" id="ghost-alerts">
+                <div style="color: var(--text-dim); font-size: 12px; padding: 10px; text-align: center;">Listening for hardware failures...</div>
+            </div>
+        </div>
     </div>
-
-    <!-- Ghost Recovery -->
-    <div class="panel-section">
-      <div class="section-title">Ghost Detection</div>
-      <div class="ghost-alert" id="ghost-panel"></div>
-    </div>
-
-    <!-- System Metrics -->
-    <div class="panel-section">
-      <div class="section-title">System Metrics</div>
-      <div class="metric-grid" id="metric-grid"></div>
-    </div>
-
-  </div>
 </div>
 
 <script>
-/* ═══════════════════════════════════════
-   CONFIG
-═══════════════════════════════════════ */
-const TOMTOM_KEY  = '';          // ← paste your TomTom key here for live tiles & traffic
-const API_BASE    = '/dashboard'; // FastAPI backend
+// ════════════════════════════════════════
+// Pulse-Chennai Production Dashboard
+// ════════════════════════════════════════
 
-/* ═══════════════════════════════════════
-   CLOCK
-═══════════════════════════════════════ */
-function updateClock() {
-  const now = new Date();
-  document.getElementById('clock').textContent =
-    now.toLocaleTimeString('en-IN', { hour12: false });
-}
-setInterval(updateClock, 1000);
-updateClock();
+const API_BASE = `${window.location.origin}/api`;
+const WS_URL = `ws://${window.location.host}/ws/live`;
 
-/* ═══════════════════════════════════════
-   TOMTOM MAP INIT
-═══════════════════════════════════════ */
+// ── State ──
 let map = null;
 let markers = {};
-let trafficFlowVisible = true;
-let satelliteMode = false;
+let busStates = {};
+let ghostAlerts = [];
+let ws = null;
+let wsReconnectTimer = null;
+let tomtomKey = '';
 
+// ── Initialize ──
+async function bootstrap() {
+    try {
+        const resp = await fetch(`${API_BASE}/config`);
+        const data = await resp.json();
+        tomtomKey = data.tomtom_api_key;
+    } catch (e) {
+        console.warn("Could not fetch config. Using fallback map.");
+    }
+    
+    initMap();
+    setTimeout(connectWebSocket, 500);
+    
+    // Polling fallbacks
+    setInterval(pollBuses, 3000);
+    setInterval(fetchTraffic, 15000);
+    setTimeout(fetchTraffic, 1000);
+}
+
+// ── Initialize Map ──
 function initMap() {
-  map = tt.map({
-    key: TOMTOM_KEY || 'demo',      // With a valid key, we get real tiles
-    container: 'map',
-    center: [80.2707, 13.0827],     // Chennai Central [lng, lat]
-    zoom: 12,
-    style: TOMTOM_KEY
-      ? `https://api.tomtom.com/style/2/custom/style/dGhpbmsvdG9tMC9kYXJr.json?key=${TOMTOM_KEY}`
-      : undefined,
-    language: 'en-GB'
-  });
-
-  // Fallback dark tile style if no key
-  if (!TOMTOM_KEY) {
-    // Use public CARTO dark tiles
-    map.setStyle({
-      version: 8,
-      sources: {
-        "carto-dark": {
-          type: "raster",
-          tiles: ["https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png"],
-          tileSize: 256, attribution: '© CARTO'
-        }
-      },
-      layers: [{ id: "carto-dark-layer", type: "raster", source: "carto-dark" }]
-    });
-  }
-
-  map.on('load', () => {
-    if (TOMTOM_KEY && trafficFlowVisible) {
-      map.addTier(tt.TrafficFlowTilesTier({ key: TOMTOM_KEY, style: tt.TrafficFlowTilesTier.ABSOLUTE }));
-    }
-  });
-}
-
-function toggleLayer(pill, type) {
-  document.querySelectorAll('.map-pill').forEach(p => p.classList.remove('active'));
-  pill.classList.add('active');
-}
-
-/* ═══════════════════════════════════════
-   BUS MARKERS
-═══════════════════════════════════════ */
-function getHWColor(score) {
-  if (score >= 0.8) return 'var(--green)';
-  if (score >= 0.5) return 'var(--amber)';
-  return 'var(--red)';
-}
-
-function renderBusMarkers(buses) {
-  if (!map) return;
-
-  buses.forEach(bus => {
-    const el = document.createElement('div');
-    el.className = `bus-marker ${bus.is_ghost ? 'ghost' : 'normal'}`;
-    el.innerHTML = bus.is_ghost ? '👻' : '🚌';
-    el.title = `${bus.trip_id} — ${bus.status}`;
-
-    // Popup content
-    const popupHTML = `
-      <div style="font-family:Inter,sans-serif;background:#0f1420;border:1px solid rgba(255,255,255,0.1);
-                  border-radius:12px;padding:14px;min-width:220px;color:#f1f5f9;">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;">
-          ${bus.is_ghost ? '👻' : '🚌'} ${bus.trip_id}
-        </div>
-        <div style="font-size:0.75rem;color:#94a3b8;margin-bottom:4px;">Route ${bus.route} · Near ${bus.near}</div>
-        <div style="display:flex;gap:10px;font-size:0.72rem;color:#64748b;margin-bottom:10px;">
-          <span>🚀 ${bus.speed} km/h</span>
-          <span>👥 ${bus.passenger_count} pax</span>
-        </div>
-        <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px;">
-          <div style="font-size:0.65rem;color:#475569;margin-bottom:4px;">HW RELIABILITY</div>
-          <div style="height:4px;background:rgba(255,255,255,0.1);border-radius:99px;">
-            <div style="height:100%;width:${Math.round(bus.hw_score*100)}%;background:${getHWColor(bus.hw_score)};border-radius:99px;"></div>
-          </div>
-          <div style="font-size:0.72rem;margin-top:4px;color:${getHWColor(bus.hw_score)};">${(bus.hw_score*100).toFixed(0)}% · ${bus.status.toUpperCase()}</div>
-        </div>
-        ${bus.is_ghost ? `<div style="margin-top:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);
-            border-radius:8px;padding:8px;font-size:0.7rem;color:#ef4444;">
-            🔴 Ghost Bus — Recovered via Collaborative Telemetry<br>
-            Confidence: ${(bus.confidence*100).toFixed(0)}%
-          </div>` : ''}
-        <div style="margin-top:8px;font-size:0.7rem;color:#22c55e;">⏱ ETA next stop: ${bus.eta_next_stop}</div>
-      </div>`;
-
-    const popup = new tt.Popup({ offset: 20, closeButton: false })
-      .setHTML(popupHTML);
-
-    if (markers[bus.trip_id]) {
-      markers[bus.trip_id].setLngLat([bus.lng, bus.lat]);
+    if (tomtomKey) {
+        map = tt.map({
+            key: tomtomKey,
+            container: 'map',
+            center: [80.2407, 13.0427], // Centered slightly south to see all segments
+            zoom: 12.5,
+        });
+        map.addControl(new tt.NavigationControl(), 'bottom-left');
     } else {
-      markers[bus.trip_id] = new tt.Marker({ element: el, anchor: 'center' })
-        .setLngLat([bus.lng, bus.lat])
-        .setPopup(popup)
-        .addTo(map);
+        // Fallback: Leaflet
+        const mapEl = document.getElementById('map');
+        mapEl.innerHTML = '<div id="leaflet-map" style="width:100%;height:100%;"></div>';
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+        script.onload = () => {
+            map = L.map('leaflet-map', { zoomControl: false }).setView([13.0427, 80.2407], 12.5);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CARTO'
+            }).addTo(map);
+            L.control.zoom({ position: 'bottomleft' }).addTo(map);
+        };
+        document.head.appendChild(script);
     }
-  });
 }
 
-/* ═══════════════════════════════════════
-   BUS LIST (LEFT PANEL)
-═══════════════════════════════════════ */
-function renderBusList(buses) {
-  const list = document.getElementById('bus-list');
-  list.innerHTML = buses.map(bus => `
-    <div class="bus-card ${bus.is_ghost ? 'ghost' : ''}"
-         onclick="if(markers['${bus.trip_id}']) { markers['${bus.trip_id}'].togglePopup(); map.flyTo({center:[${bus.lng},${bus.lat}],zoom:15}); }">
-      <div class="bus-header">
-        <span class="bus-route">Route ${bus.route}</span>
-        <span class="bus-status ${bus.is_ghost ? 'ghost' : 'active'}">${bus.status.replace('_',' ')}</span>
-      </div>
-      <div class="bus-id">${bus.trip_id}</div>
-      <div class="bus-meta">
-        <span>📍 ${bus.near}</span>
-        <span>🚀 ${bus.speed} km/h</span>
-        <span>👥 ${bus.passenger_count}</span>
-        <span>⏱ ${bus.eta_next_stop}</span>
-      </div>
-      <div class="hw-bar-wrap">
-        <div class="hw-bar-track">
-          <div class="hw-bar-fill"
-               style="width:${Math.round(bus.hw_score*100)}%; background:${getHWColor(bus.hw_score)};"></div>
+// ── Map Markers ──
+function getMarkerHTML(markerClass) {
+    return `<div class="map-marker-container marker-${markerClass}">
+                <div class="marker-aura"></div>
+                <div class="marker-core"></div>
+            </div>`;
+}
+
+function updateMarker(bus) {
+    const id = bus.trip_id || bus.bus_id;
+    if (!id || !map) return;
+
+    const lat = parseFloat(bus.lat);
+    const lng = parseFloat(bus.lng);
+    if (!lat || !lng) return;
+
+    const status = bus.status || 'active';
+    const isGhost = bus.is_ghost === true || bus.is_ghost === 'True';
+    const markerClass = isGhost ? (status === 'ghost_recovered' ? 'recovered' : 'ghost') : 'active';
+
+    if (tomtomKey) {
+        if (markers[id]) {
+            // Animate movement smoothly using TomTom SDK if possible, or just set
+            markers[id].setLngLat([lng, lat]);
+            markers[id].getElement().innerHTML = getMarkerHTML(markerClass);
+            // Update popup content dynamically if open
+            if (markers[id].getPopup().isOpen()) {
+                markers[id].getPopup().setHTML(buildPopupHTML(bus));
+            } else {
+                markers[id].getPopup().setHTML(buildPopupHTML(bus));
+            }
+        } else {
+            const el = document.createElement('div');
+            el.innerHTML = getMarkerHTML(markerClass);
+            const popup = new tt.Popup({ offset: [0, -15], closeButton: false }).setHTML(buildPopupHTML(bus));
+            markers[id] = new tt.Marker({ element: el.firstElementChild }).setLngLat([lng, lat]).setPopup(popup).addTo(map);
+        }
+    } else if (map && map.addLayer) {
+        // Leaflet fallback
+        const color = isGhost ? (status === 'ghost_recovered' ? '#f59e0b' : '#f43f5e') : '#10b981';
+        if (markers[id]) {
+            markers[id].setLatLng([lat, lng]);
+            markers[id].setStyle({ color: color, fillColor: color });
+            markers[id].setPopupContent(buildPopupHTML(bus));
+        } else {
+            markers[id] = L.circleMarker([lat, lng], {
+                radius: 10, color: '#fff', fillColor: color, fillOpacity: 1, weight: 2,
+            }).addTo(map).bindPopup(buildPopupHTML(bus));
+        }
+    }
+}
+
+function buildPopupHTML(bus) {
+    const isGhost = bus.is_ghost === true || bus.is_ghost === 'True';
+    const tag = isGhost ? '<span class="ghost-tag">⚠ ANOMALY DETECTED</span>' : '<span class="ok-tag">● HARDWARE HEALTHY</span>';
+    const hwColor = parseFloat(bus.hw_score || 1) < 0.3 ? '#f43f5e' : parseFloat(bus.hw_score || 1) < 0.7 ? '#f59e0b' : '#10b981';
+    
+    return `<div class="bus-popup">
+        <strong>${bus.trip_id || bus.bus_id} ${tag}</strong>
+        <div class="bus-popup-row"><span class="bus-popup-label">Velocity</span><span>${parseFloat(bus.speed || 0).toFixed(0)} km/h</span></div>
+        <div class="bus-popup-row"><span class="bus-popup-label">Route</span><span>${bus.route_id || '—'}</span></div>
+        <div class="bus-popup-row"><span class="bus-popup-label">Telemetry Source</span><span>${bus.source || 'AIS140'}</span></div>
+        <div class="bus-popup-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5e1;">
+            <span class="bus-popup-label">Hardware Score</span>
+            <span style="font-weight:700; color:${hwColor}">${parseFloat(bus.hw_score || 1).toFixed(3)}</span>
         </div>
-        <div class="hw-label" style="color:${getHWColor(bus.hw_score)};">${(bus.hw_score*100).toFixed(0)}%</div>
-      </div>
-    </div>
-  `).join('');
-}
-
-/* ═══════════════════════════════════════
-   TRAFFIC PANEL
-═══════════════════════════════════════ */
-function renderTraffic(data) {
-  const idx = data.congestion_index;
-  document.getElementById('t-index').textContent = idx;
-  document.getElementById('t-status').textContent = data.status;
-  document.getElementById('t-status').style.color = data.color;
-  document.getElementById('t-source').textContent = data.source;
-  document.getElementById('t-updated').textContent = 'Updated ' + data.updated_at;
-
-  // Ring animation
-  const circumference = 163.36;
-  const offset = circumference - (idx / 100) * circumference;
-  const ring = document.getElementById('traffic-ring-fill');
-  ring.style.strokeDashoffset = offset;
-  ring.style.stroke = data.color;
-
-  // Bottlenecks
-  const colors = { 90: '#ef4444', 70: '#f59e0b', 0: '#22c55e' };
-  const getColor = v => v >= 80 ? '#ef4444' : v >= 55 ? '#f59e0b' : '#22c55e';
-  document.getElementById('bottlenecks').innerHTML =
-    data.bottlenecks.map(b => `
-      <div class="bottleneck-row">
-        <div class="bottleneck-name">${b.name}</div>
-        <div class="bottleneck-bar-track">
-          <div class="bottleneck-bar-fill" style="width:${b.congestion}%; background:${getColor(b.congestion)};"></div>
-        </div>
-        <div class="bottleneck-pct">${b.congestion}%</div>
-      </div>`).join('');
-}
-
-/* ═══════════════════════════════════════
-   GHOST PANEL
-═══════════════════════════════════════ */
-function renderGhost(data) {
-  document.getElementById('ghost-panel').innerHTML = `
-    <div class="ghost-alert-header">
-      <span class="ghost-icon">👻</span>
-      Ghost Bus Detected — ${data.trip_id}
-    </div>
-    <div class="ghost-detail">
-      <strong style="color:var(--text-2)">Trigger:</strong> ${data.trigger}<br>
-      <strong style="color:var(--text-2)">HW Score:</strong> ${(data.hw_score*100).toFixed(0)}% (threshold: 30%)<br>
-      <strong style="color:var(--text-2)">Passenger pings used:</strong> ${data.passenger_pings_used}
-    </div>
-    <div class="ghost-recovered">
-      ✅ ${data.recovery_method} — Confidence ${(data.confidence*100).toFixed(0)}%<br>
-      📍 ${data.snapped_road} · ETA: ${data.eta_next_stop}
     </div>`;
 }
 
-/* ═══════════════════════════════════════
-   METRICS PANEL
-═══════════════════════════════════════ */
-function renderMetrics(m) {
-  document.getElementById('s-active').textContent   = m.active_buses;
-  document.getElementById('s-ghost').textContent    = m.ghost_buses_recovered;
-  document.getElementById('s-latency').textContent  = m.inference_latency_ms;
-  document.getElementById('s-snap').textContent     = m.map_snap_accuracy_pct + '%';
-  document.getElementById('s-eta').textContent      = m.eta_accuracy_pct + '%';
-  document.getElementById('s-kafka').textContent    = m.kafka_throughput_pings_s;
+// ── UI Updates ──
+function updateMetrics() {
+    const buses = Object.values(busStates);
+    const total = buses.length;
+    if (total === 0) return;
+    
+    const ghosts = buses.filter(b => b.is_ghost === true || b.is_ghost === 'True').length;
+    const recovered = buses.filter(b => b.status === 'ghost_recovered').length;
+    const avgHW = buses.reduce((s, b) => s + parseFloat(b.hw_score || 1), 0) / Math.max(total, 1);
 
-  document.getElementById('metric-grid').innerHTML = [
-    { val: m.inference_latency_ms + ' ms', lbl: 'GNN Inference' },
-    { val: m.redis_latency_ms + ' ms', lbl: 'Redis Fetch' },
-    { val: m.hw_reliability_avg * 100 + '%', lbl: 'HW Reliability' },
-    { val: m.kafka_throughput_pings_s + '/s', lbl: 'Kafka Pings' },
-    { val: m.ghost_buses_suppressed, lbl: 'Suppressed Ghosts' },
-    { val: m.ghost_buses_recovered, lbl: 'Recovered Ghosts' },
-    { val: m.map_snap_accuracy_pct + '%', lbl: 'Map-Snap Acc.' },
-    { val: m.eta_accuracy_pct + '%', lbl: 'ETA Accuracy' },
-  ].map(x => `
-    <div class="metric-box">
-      <div class="metric-val">${x.val}</div>
-      <div class="metric-lbl">${x.lbl}</div>
-    </div>`).join('');
+    document.getElementById('m-active').textContent = total - ghosts;
+    document.getElementById('m-ghost').textContent = ghosts;
+    document.getElementById('m-recovered').textContent = recovered;
+    document.getElementById('m-health').textContent = Math.round(avgHW * 100) + '%';
+    
+    // Update colors dynamically based on health
+    document.getElementById('m-health').className = `metric-value ${avgHW < 0.6 ? 'metric-red' : avgHW < 0.85 ? 'metric-yellow' : 'metric-blue'}`;
 }
 
-/* ═══════════════════════════════════════
-   DATA FETCH LOOP
-═══════════════════════════════════════ */
-async function fetchAll() {
-  try {
-    const [buses, traffic, metrics, ghost] = await Promise.all([
-      fetch(`${API_BASE}/api/buses`).then(r=>r.json()),
-      fetch(`${API_BASE}/api/traffic`).then(r=>r.json()),
-      fetch(`${API_BASE}/api/metrics`).then(r=>r.json()),
-      fetch(`${API_BASE}/api/ghost-event`).then(r=>r.json()),
-    ]);
+function updateBusList() {
+    const list = document.getElementById('bus-list');
+    const buses = Object.entries(busStates).sort((a, b) => {
+        const aGhost = a[1].is_ghost === true || a[1].is_ghost === 'True';
+        const bGhost = b[1].is_ghost === true || b[1].is_ghost === 'True';
+        if (aGhost !== bGhost) return aGhost ? -1 : 1;
+        return a[0].localeCompare(b[0]);
+    });
 
-    renderBusList(buses);
-    renderBusMarkers(buses);
-    renderTraffic(traffic);
-    renderMetrics(metrics);
-    renderGhost(ghost);
-  } catch(e) {
-    console.warn('API not available, demo mode active', e);
-  }
+    list.innerHTML = buses.map(([id, bus]) => {
+        const isGhost = bus.is_ghost === true || bus.is_ghost === 'True';
+        const dotClass = isGhost ? (bus.status === 'ghost_recovered' ? 'recovered' : 'ghost') : 'active';
+        const hwScore = parseFloat(bus.hw_score || 1);
+        const hwColor = hwScore < 0.3 ? 'var(--accent-red)' : hwScore < 0.7 ? 'var(--accent-yellow)' : 'var(--accent-green)';
+        
+        return `<div class="bus-item" onclick="focusBus('${id}')">
+            <div class="bus-item-dot ${dotClass}"></div>
+            <div class="bus-info">
+                <div class="bus-id">${id}</div>
+                <div class="bus-meta">
+                    <span class="meta-tag">${bus.route_id || 'Route'}</span>
+                    <span style="color: #fff; font-weight: 600;">${parseFloat(bus.speed||0).toFixed(0)} km/h</span>
+                </div>
+            </div>
+            <div class="bus-hw" style="color:${hwColor}">
+                <span class="bus-hw-label">HW Score</span>
+                ${hwScore.toFixed(3)}
+            </div>
+        </div>`;
+    }).join('');
 }
 
-/* ═══════════════════════════════════════
-   BOOT
-═══════════════════════════════════════ */
-window.addEventListener('load', () => {
-  initMap();
-  fetchAll();
-  setInterval(fetchAll, 5000);   // Refresh every 5s
-});
+function focusBus(id) {
+    const bus = busStates[id];
+    if (bus && map) {
+        const lat = parseFloat(bus.lat);
+        const lng = parseFloat(bus.lng);
+        if (tomtomKey) {
+            map.flyTo({ center: [lng, lat], zoom: 16, duration: 1000 });
+            if (markers[id]) markers[id].togglePopup();
+        } else if (map.flyTo) {
+            map.flyTo([lat, lng], 16);
+        }
+    }
+}
+
+function addGhostAlert(bus) {
+    const id = bus.trip_id || bus.bus_id;
+    const isRecovered = bus.status === 'ghost_recovered';
+    
+    // Check if we already have an alert for this state
+    const existing = ghostAlerts.find(a => a.id === id && a.recovered === isRecovered);
+    if (existing) return; 
+
+    // Remove older alerts for this bus to prevent spam
+    ghostAlerts = ghostAlerts.filter(a => a.id !== id);
+
+    const alert = {
+        id: id,
+        hw_score: parseFloat(bus.hw_score || 0).toFixed(3),
+        source: bus.source || 'GHOST',
+        status: bus.status,
+        time: new Date().toLocaleTimeString(),
+        recovered: isRecovered,
+    };
+    
+    ghostAlerts.unshift(alert);
+    if (ghostAlerts.length > 10) ghostAlerts.pop();
+    renderGhostAlerts();
+}
+
+function renderGhostAlerts() {
+    const container = document.getElementById('ghost-alerts');
+    if (ghostAlerts.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; padding: 10px; text-align: center;">Listening for hardware failures...</div>';
+        return;
+    }
+    container.innerHTML = ghostAlerts.map(a => `
+        <div class="ghost-alert" style="${a.recovered ? 'border-left-color: var(--accent-yellow); background: linear-gradient(145deg, rgba(245, 158, 11, 0.1) 0%, rgba(15, 23, 42, 0.8) 100%);' : ''}">
+            <div class="ghost-alert-header">
+                <span class="ghost-alert-bus" style="${a.recovered ? 'color: var(--accent-yellow);' : ''}">
+                    ${a.recovered ? 
+                        '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> RECOVERED' : 
+                        '<svg viewBox="0 0 24 24"><path d="M12 2L1 21h22M12 6l7.53 13H4.47M11 10v4h2v-4m-2 6v2h2v-2"/></svg> HARDWARE FAILURE'}
+                    ${a.id}
+                </span>
+                <span class="ghost-alert-time">${a.time}</span>
+            </div>
+            <div class="ghost-alert-body">
+                Hardware validation score dropped to <strong>${a.hw_score}</strong>. 
+                <br>
+                ${a.recovered ?
+                    `<span class="ghost-alert-recovery">Successfully fused position via ${a.source}</span>` :
+                    '<span style="color: var(--accent-red)">Suppressing invalid telemetry. Initiating recovery...</span>'}
+            </div>
+        </div>
+    `).join('');
+}
+
+// ── Traffic Bars ──
+async function fetchTraffic() {
+    try {
+        const resp = await fetch(`${API_BASE}/traffic`);
+        const data = await resp.json();
+        const container = document.getElementById('traffic-bars');
+        const segments = data.segments || data.bottlenecks || [];
+        
+        if (segments.length === 0) return;
+        
+        container.innerHTML = segments.map(seg => {
+            const speed = parseFloat(seg.current_speed_kmph || seg.speed || 0);
+            const freeFlow = 52.0; // Approximation based on backend
+            // For UI purposes, calculate ratio based on speed vs free flow to make it look realistic
+            // High speed = green, low speed = red
+            let pct = Math.min(100, Math.round((speed / freeFlow) * 100));
+            // Invert logic for color: low pct (slow speed) is red
+            let color = pct > 75 ? 'var(--accent-green)' : pct > 45 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+            
+            const label = (seg.segment_label || seg.name || '').replace(/_/g, ' ');
+            return `<div class="traffic-bar-item">
+                <span class="traffic-bar-label">${label}</span>
+                <div class="traffic-bar-track">
+                    <div class="traffic-bar-fill" style="width:${pct}%; background:${color}; box-shadow: 0 0 10px ${color}"></div>
+                </div>
+                <span class="traffic-bar-value">${speed.toFixed(0)} <span style="font-size:9px; color:var(--text-dim); font-weight:500;">km/h</span></span>
+            </div>`;
+        }).join('');
+    } catch (e) { console.warn("Traffic fetch error", e); }
+}
+
+// ── WebSocket ──
+function connectWebSocket() {
+    if (ws) { ws.close(); }
+
+    ws = new WebSocket(WS_URL);
+    const ind = document.getElementById('ws-indicator');
+    const stat = document.getElementById('ws-status');
+
+    ws.onopen = () => {
+        ind.className = 'ws-dot ws-connected';
+        stat.textContent = 'STREAM ACTIVE';
+        stat.style.color = 'var(--accent-green)';
+        if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'initial_state' && data.buses) {
+                data.buses.forEach(bus => {
+                    const id = bus.trip_id || bus.bus_id;
+                    busStates[id] = bus;
+                    updateMarker(bus);
+                });
+            } else if (data.type === 'bus_update' || data.trip_id) {
+                const id = data.trip_id || data.bus_id;
+                busStates[id] = data;
+                updateMarker(data);
+
+                const isGhost = data.is_ghost === true || data.is_ghost === 'True';
+                if (isGhost || data.status === 'ghost_recovered') {
+                    addGhostAlert(data);
+                }
+            } else if (data.type === 'bus_update_batch' && data.buses) {
+                data.buses.forEach(bus => {
+                    const id = bus.trip_id || bus.bus_id;
+                    busStates[id] = bus;
+                    updateMarker(bus);
+                    const isGhost = bus.is_ghost === true || bus.is_ghost === 'True';
+                    if (isGhost || bus.status === 'ghost_recovered') {
+                        addGhostAlert(bus);
+                    }
+                });
+            }
+
+            updateMetrics();
+            updateBusList();
+        } catch (e) { /* silent */ }
+    };
+
+    ws.onclose = () => {
+        ind.className = 'ws-dot ws-disconnected';
+        stat.textContent = 'DISCONNECTED';
+        stat.style.color = 'var(--accent-red)';
+        wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+    };
+
+    ws.onerror = () => { ws.close(); };
+
+    // Heartbeat
+    setInterval(() => { if (ws && ws.readyState === 1) ws.send('ping'); }, 25000);
+}
+
+// ── Polling Fallback ──
+async function pollBuses() {
+    try {
+        const resp = await fetch(`${API_BASE}/buses`);
+        const data = await resp.json();
+        (data.buses || []).forEach(bus => {
+            const id = bus.trip_id || bus.bus_id;
+            busStates[id] = bus;
+            updateMarker(bus);
+            const isGhost = bus.is_ghost === true || bus.is_ghost === 'True';
+            if (isGhost || bus.status === 'ghost_recovered') {
+                addGhostAlert(bus);
+            }
+        });
+        updateMetrics();
+        updateBusList();
+    } catch (e) { /* silent */ }
+}
+
+// ── Kickoff ──
+document.addEventListener('DOMContentLoaded', bootstrap);
 </script>
 </body>
 </html>
