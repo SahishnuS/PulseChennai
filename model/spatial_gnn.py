@@ -114,7 +114,7 @@ class HomogeneousGATBackbone(nn.Module):
         This is the KEY advantage over Uber's GraphSAGE.
         """
         for i in range(self.num_layers):
-            residual = x if x.shape[-1] == self.convs[i].out_channels * self.convs[i].heads else None
+            residual = x if i > 0 else None
 
             x = self.convs[i](x, edge_index)
             x = self.norms[i](x)
@@ -122,7 +122,7 @@ class HomogeneousGATBackbone(nn.Module):
             x = self.dropout(x)
 
             # Residual connection (after first layer aligns dims)
-            if residual is not None and residual.shape == x.shape:
+            if residual is not None:
                 x = x + residual
 
         return x

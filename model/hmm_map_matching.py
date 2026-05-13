@@ -97,25 +97,39 @@ class HMMMapMatcher:
         Stub road network for Chennai's major bus routes.
         In production: connect to PostGIS or load from OSM data.
         """
-        # Major corridors in Chennai
-        chennai_roads = [
-            RoadSegment("anna_salai_1", 13.0620, 80.2560, 13.0660, 80.2580,
-                        30.0, "arterial", 40.0, True),
-            RoadSegment("anna_salai_2", 13.0660, 80.2580, 13.0700, 80.2600,
-                        35.0, "arterial", 40.0, True),
-            RoadSegment("ecr_1", 12.9800, 80.2500, 12.9850, 80.2530,
-                        45.0, "highway", 60.0, True),
-            RoadSegment("mount_rd_1", 13.0400, 80.2500, 13.0450, 80.2520,
-                        25.0, "arterial", 40.0, True),
-            RoadSegment("gst_1", 13.0100, 80.2200, 13.0150, 80.2250,
-                        50.0, "highway", 60.0, True),
-            RoadSegment("poonamallee_1", 13.0500, 80.1600, 13.0530, 80.1650,
-                        60.0, "arterial", 40.0, True),
-            RoadSegment("omr_1", 12.9600, 80.2400, 12.9650, 80.2450,
-                        40.0, "highway", 60.0, True),
-            RoadSegment("kamarajar_salai_1", 13.0500, 80.2800, 13.0530, 80.2830,
-                        15.0, "arterial", 30.0, True),
-        ]
+        chennai_roads = []
+        # Anna Salai
+        for i in range(10):
+            lat_start = 13.0620 + i * 0.0040
+            lng_start = 80.2560 + i * 0.0020
+            chennai_roads.append(RoadSegment(
+                f"anna_salai_{i}", lat_start, lng_start, lat_start + 0.0040, lng_start + 0.0020,
+                30.0 + i, "arterial", 40.0, True
+            ))
+        # OMR
+        for i in range(10):
+            lat_start = 12.9600 - i * 0.0050
+            lng_start = 80.2400 + i * 0.0010
+            chennai_roads.append(RoadSegment(
+                f"omr_{i}", lat_start, lng_start, lat_start - 0.0050, lng_start + 0.0010,
+                160.0, "highway", 60.0, True
+            ))
+        # GST Road
+        for i in range(10):
+            lat_start = 13.0100 - i * 0.0060
+            lng_start = 80.2200 - i * 0.0030
+            chennai_roads.append(RoadSegment(
+                f"gst_{i}", lat_start, lng_start, lat_start - 0.0060, lng_start - 0.0030,
+                210.0, "highway", 60.0, True
+            ))
+        # ECR
+        for i in range(10):
+            lat_start = 12.9800 - i * 0.0050
+            lng_start = 80.2500 + i * 0.0030
+            chennai_roads.append(RoadSegment(
+                f"ecr_{i}", lat_start, lng_start, lat_start - 0.0050, lng_start + 0.0030,
+                170.0, "highway", 60.0, True
+            ))
         return chennai_roads
 
     def _haversine(self, lat1, lon1, lat2, lon2) -> float:

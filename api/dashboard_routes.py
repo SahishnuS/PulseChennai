@@ -22,17 +22,13 @@ _LAST_GHOST_EVENT: Optional[dict] = None
 
 # Pre-populate state so the map isn't empty initially
 _ROUTES = [
-    {"id": "21G", "name": "Chennai Central → Guindy", "stops": 18},
-    {"id": "5C",  "name": "Koyambedu → T. Nagar",    "stops": 12},
-    {"id": "12",  "name": "Perambur → Tambaram",       "stops": 24},
-    {"id": "47",  "name": "Anna Nagar → Besant Nagar", "stops": 15},
-    {"id": "29C", "name": "Thiruvanmiyur → Broadway",  "stops": 20},
+    {"id": "19",   "name": "Thiruporur → T. Nagar",  "stops": 13},
+    {"id": "102X", "name": "Thiruporur → Broadway",  "stops": 15},
 ]
 
 _INITIAL_SEEDS = [
-    {"trip":  "MTC-21G-001", "route": "21G", "lat": 13.0827, "lng": 80.2707, "name": "Chennai Central", "hw_score": 0.95, "speed": 45.0, "is_ghost": False},
-    {"trip":  "MTC-5C-002",  "route": "5C",  "lat": 13.0674, "lng": 80.2376, "name": "T. Nagar", "hw_score": 0.88, "speed": 35.0, "is_ghost": False},
-    {"trip":  "MTC-12-003",  "route": "12",  "lat": 13.0044, "lng": 80.2496, "name": "Guindy", "hw_score": 0.92, "speed": 40.0, "is_ghost": False},
+    {"trip":  "MTC-19-001",   "route": "19",   "lat": 12.7260, "lng": 80.1893, "name": "Thiruporur",   "hw_score": 0.95, "speed": 35.0, "is_ghost": False},
+    {"trip":  "MTC-102X-002", "route": "102X", "lat": 12.7260, "lng": 80.1893, "name": "Thiruporur",   "hw_score": 0.93, "speed": 38.0, "is_ghost": False},
 ]
 
 for seed in _INITIAL_SEEDS:

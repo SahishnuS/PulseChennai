@@ -67,7 +67,10 @@ async def ingest_gps_ping(ping: GPSPingRequest):
     if success:
         return {"status": "accepted", "bus_id": ping.device_id, "pipeline": "kafka"}
     else:
-        raise HTTPException(status_code=503, detail="Failed to queue GPS ping.")
+        # In degraded mode (no Kafka, no fallback), still accept and log
+        logger.warning(f"Could not queue GPS ping for {ping.device_id} — no pipeline available")
+        return {"status": "degraded", "bus_id": ping.device_id, "pipeline": "none"}
+
 
 
 @router.post("/passenger-ping", status_code=202)

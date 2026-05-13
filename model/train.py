@@ -80,13 +80,14 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, h3_index_map):
         pred_eta = output["eta_seconds"]         # (num_buses_in_batch,)
 
         # Map true/neg H3 strings to node indices
+        num_scores = h3_scores.size(0)
         pos_indices = torch.tensor(
-            [h3_index_map.get(h, 0) for h in true_h3_list],
+            [min(h3_index_map.get(h, 0), max(0, num_scores - 1)) for h in true_h3_list],
             dtype=torch.long, device=device
         )
         neg_scores = torch.stack([
             torch.tensor(
-                [h3_scores[h3_index_map.get(n, 0)].item() for n in negs],
+                [h3_scores[min(h3_index_map.get(n, 0), max(0, num_scores - 1))].item() for n in negs],
                 device=device
             )
             for negs in neg_h3s_list
@@ -94,9 +95,9 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, h3_index_map):
 
         result = loss_fn(
             h3_scores=h3_scores,
-            pos_idx=pos_indices,
-            neg_scores=neg_scores,
-            pred_eta=pred_eta,
+            positive_h3_idx=pos_indices,
+            negative_h3_scores=neg_scores,
+            predicted_eta=pred_eta,
             actual_eta=true_eta,
         )
 
@@ -125,13 +126,14 @@ def validate(model, loader, loss_fn, device, h3_index_map):
         h3_scores = output["h3_scores"]
         pred_eta = output["eta_seconds"]
 
+        num_scores = h3_scores.size(0)
         pos_indices = torch.tensor(
-            [h3_index_map.get(h, 0) for h in true_h3_list],
+            [min(h3_index_map.get(h, 0), max(0, num_scores - 1)) for h in true_h3_list],
             dtype=torch.long, device=device
         )
         neg_scores = torch.stack([
             torch.tensor(
-                [h3_scores[h3_index_map.get(n, 0)].item() for n in negs],
+                [h3_scores[min(h3_index_map.get(n, 0), max(0, num_scores - 1))].item() for n in negs],
                 device=device
             )
             for negs in neg_h3s_list

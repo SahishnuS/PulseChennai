@@ -83,7 +83,8 @@ async def send(topic: str, message: dict, key: Optional[str] = None) -> bool:
             await _fallback_handler(topic, message)
             return True
         except Exception as e:
-            logger.error(f"Fallback handler failed: {e}")
+            import traceback
+            logger.error(f"Fallback handler failed: {e}\n{traceback.format_exc()}")
     return False
 
 

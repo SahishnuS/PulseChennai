@@ -130,14 +130,37 @@ async def _handle_bus_ping(ping: dict):
     h3_cell = ""
     try:
         import h3
-        h3_cell = h3.latlng_to_cell(final_lat, final_lng, 9)
-    except ImportError:
+        # h3 v4+ uses latlng_to_cell, v3 uses geo_to_h3
+        if hasattr(h3, 'latlng_to_cell'):
+            h3_cell = h3.latlng_to_cell(final_lat, final_lng, 9)
+        elif hasattr(h3, 'geo_to_h3'):
+            h3_cell = h3.geo_to_h3(final_lat, final_lng, 9)
+    except Exception:
         pass
 
-    # 5. Update Redis Speed Layer
+    # 5. HMM Map-Matching
+    try:
+        from model.hmm_map_matching import HMMMapMatcher
+        global _hmm_matcher
+        if '_hmm_matcher' not in globals():
+            _hmm_matcher = HMMMapMatcher()
+        match_result = _hmm_matcher.match_point(final_lat, final_lng, heading, congestion_score=0.0)
+        snapped_lat = match_result.snapped_lat
+        snapped_lng = match_result.snapped_lng
+        road_segment = match_result.segment_id
+        road_class = match_result.road_class
+    except Exception as e:
+        logger.debug(f"HMM map-matching failed: {e}")
+        snapped_lat, snapped_lng, road_segment, road_class = final_lat, final_lng, "unknown", "unknown"
+
+    # 5.5 Update Redis Speed Layer
     bus_state = {
         "lat": round(final_lat, 6),
         "lng": round(final_lng, 6),
+        "snapped_lat": round(snapped_lat, 6),
+        "snapped_lng": round(snapped_lng, 6),
+        "road_segment": road_segment,
+        "road_class": road_class,
         "speed": round(final_speed, 1) if final_speed else 0,
         "heading": heading,
         "hw_score": round(hw_score, 4),

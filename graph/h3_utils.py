@@ -12,6 +12,8 @@ Why H3 over grid squares?
 - Zero overlap at edges (no diagonal ambiguity)
 - Uniform neighbor distance (6 equidistant neighbors vs 4+4)
 - Natural fit for GNN message passing on spatial graphs
+
+Supports both h3 v3 (geo_to_h3) and h3 v4 (latlng_to_cell) APIs.
 """
 
 import math
@@ -24,8 +26,11 @@ logger = logging.getLogger(__name__)
 try:
     import h3
     H3_AVAILABLE = True
+    # Detect h3 version
+    H3_V4 = hasattr(h3, 'latlng_to_cell')
 except ImportError:
     H3_AVAILABLE = False
+    H3_V4 = False
     logger.warning("h3 library not installed. Using stub implementations.")
 
 
@@ -42,7 +47,10 @@ def latlng_to_h3(lat: float, lng: float, resolution: int = 9) -> str:
         H3 cell index string (e.g., '89754e64d53ffff')
     """
     if H3_AVAILABLE:
-        return h3.latlng_to_cell(lat, lng, resolution)
+        if H3_V4:
+            return h3.latlng_to_cell(lat, lng, resolution)
+        else:
+            return h3.geo_to_h3(lat, lng, resolution)
     # Stub for testing without h3 installed
     return f"stub_{resolution}_{round(lat, 4)}_{round(lng, 4)}"
 
@@ -55,7 +63,10 @@ def h3_to_latlng(h3_index: str) -> tuple[float, float]:
         (lat, lng) tuple
     """
     if H3_AVAILABLE:
-        return h3.cell_to_latlng(h3_index)
+        if H3_V4:
+            return h3.cell_to_latlng(h3_index)
+        else:
+            return h3.h3_to_geo(h3_index)
     # Stub: parse from stub format
     if h3_index.startswith("stub_"):
         parts = h3_index.split("_")
@@ -79,7 +90,10 @@ def get_k_ring(h3_index: str, k: int = 2) -> list[str]:
         List of H3 cell indices including the center
     """
     if H3_AVAILABLE:
-        return list(h3.grid_disk(h3_index, k))
+        if H3_V4:
+            return list(h3.grid_disk(h3_index, k))
+        else:
+            return list(h3.k_ring(h3_index, k))
     # Stub: return synthetic neighbors
     return [f"{h3_index}_ring{i}" for i in range(max(1, 3 * k * (k + 1) + 1))]
 
@@ -96,7 +110,10 @@ def h3_distance(h3_a: str, h3_b: str) -> int:
     """
     if H3_AVAILABLE:
         try:
-            return h3.grid_distance(h3_a, h3_b)
+            if H3_V4:
+                return h3.grid_distance(h3_a, h3_b)
+            else:
+                return h3.h3_distance(h3_a, h3_b)
         except Exception:
             return -1  # Cells in different base cells
     return 1
@@ -108,7 +125,10 @@ def get_neighbors(h3_index: str) -> list[str]:
     These form the direct edges in the GNN spatial graph.
     """
     if H3_AVAILABLE:
-        ring = list(h3.grid_ring(h3_index, 1))
+        if H3_V4:
+            ring = list(h3.grid_ring(h3_index, 1))
+        else:
+            ring = list(h3.hex_ring(h3_index, 1))
         return ring
     return [f"{h3_index}_n{i}" for i in range(6)]
 
@@ -199,7 +219,10 @@ def compute_temporal_encoding(
 def h3_cell_area_m2(h3_index: str) -> float:
     """Get the area of an H3 cell in square meters."""
     if H3_AVAILABLE:
-        return h3.cell_area(h3_index, unit="m^2")
+        if H3_V4:
+            return h3.cell_area(h3_index, unit="m^2")
+        else:
+            return h3.hex_area(9, unit="m^2")
     # Approximate for L9
     return 105_332.0  # ~0.1 km²
 

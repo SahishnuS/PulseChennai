@@ -86,9 +86,45 @@ async def lifespan(app: FastAPI):
     refresh_interval = int(os.getenv("TOMTOM_REFRESH_INTERVAL", "120"))
     await tomtom_client.start_refresh_loop(refresh_interval)
 
+    # ── 7. Preload GNN Inference Pipeline ──
+    try:
+        from api.routes.predict import get_pipeline
+        # Running synchronously is fine here since it only happens once at startup
+        get_pipeline()
+        logger.info("Preloaded InferencePipeline with GNN model")
+    except Exception as e:
+        logger.warning(f"Failed to preload InferencePipeline: {e}")
+
     logger.info("=" * 60)
     logger.info("PULSE-CHENNAI ENGINE READY — http://0.0.0.0:8001")
     logger.info("=" * 60)
+
+    # ── 6. Seed initial bus data into the speed layer ──
+    # Ensures the dashboard shows buses immediately on load
+    import random
+    # Seed positions match the FIRST waypoint of each simulator route exactly,
+    # so markers do not jump when the simulator starts sending live data.
+    _SEED_BUSES = [
+        {"id": "MTC-19-001",   "route": "19",   "lat": 12.7427, "lng": 80.2297, "speed": 35.0, "hw": 0.95},
+        {"id": "MTC-102X-002", "route": "102X", "lat": 12.7427, "lng": 80.2297, "speed": 38.0, "hw": 0.93},
+    ]
+    for seed in _SEED_BUSES:
+        state = {
+            "lat": seed["lat"],
+            "lng": seed["lng"],
+            "speed": seed["speed"],
+            "heading": random.uniform(0, 360),
+            "hw_score": seed["hw"],
+            "is_ghost": False,
+            "status": "active",
+            "route_id": seed["route"],
+            "h3_cell": "",
+            "passenger_count": random.randint(15, 55),
+            "source": "AIS140",
+            "confidence": 0.98,
+        }
+        await async_redis.set_bus_state(seed["id"], state)
+    logger.info(f"Seeded {len(_SEED_BUSES)} buses into speed layer.")
 
     yield  # ─── Application is running ───
 
@@ -107,7 +143,7 @@ async def lifespan(app: FastAPI):
 # ── Create FastAPI app ──
 app = FastAPI(
     title="Pulse-Chennai",
-    description="Cloud-Native Geospatial Engine for Reliable Urban Transit",
+    description="TEST DESCRIPTION",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -124,11 +160,15 @@ app.add_middleware(
 from api.routes.ingest import router as ingest_router
 from api.routes.buses import router as buses_router
 from api.routes.health import router as health_router
+from api.routes.predict import router as predict_router
+from api.routes.eta import router as eta_router
 from api.websocket import router as ws_router
 
 app.include_router(ingest_router)
 app.include_router(buses_router)
 app.include_router(health_router)
+app.include_router(predict_router)
+app.include_router(eta_router)
 app.include_router(ws_router)
 
 # ── Serve frontend ──
@@ -149,6 +189,15 @@ async def serve_dashboard():
     if os.path.exists(index):
         return FileResponse(index)
     return {"message": "Pulse-Chennai API is running. No frontend found at /ui/index.html"}
+
+
+@app.get("/eta")
+async def serve_eta_page():
+    """Serve the standalone ETA Calculator page."""
+    eta_page = os.path.join(_UI_DIR, "eta.html")
+    if os.path.exists(eta_page):
+        return FileResponse(eta_page)
+    return {"message": "ETA page not found at /ui/eta.html"}
 
 
 if __name__ == "__main__":

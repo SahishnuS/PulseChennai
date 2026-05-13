@@ -1,7 +1,10 @@
 """
 Pulse-Chennai AIS-140 Hardware Simulator
 ==========================================
-Simulates 5 MTC buses on real Chennai routes.
+Simulates 2 MTC buses on real Chennai routes:
+  - Route 19:   Thiruporur → T. Nagar (via OMR)
+  - Route 102X: Thiruporur → Broadway (via OMR + Adyar + Marina)
+
 Sends HTTP POST to /api/ingest every 2 seconds.
 Injects ghost bus events at deterministic steps.
 Also simulates passenger pings near ghost bus locations.
@@ -21,86 +24,53 @@ logger = logging.getLogger("simulator")
 
 API_BASE = "http://localhost:8001/api"
 
-# ── Real Chennai Routes (10-15 waypoints each) ──
+# ── Real Chennai MTC Routes (GPS waypoints sourced from public data) ──
+# Coordinates represent major bus stops / landmarks along each route.
 ROUTES = {
-    "MTC-21G-001": {
-        "route": "21G", "name": "Tambaram → Central",
+    "MTC-19-001": {
+        "route": "19", "name": "Thiruporur → T. Nagar",
         "waypoints": [
-            (12.9249, 80.1000),  # Tambaram
-            (12.9400, 80.1200),  # Chromepet
-            (12.9600, 80.1500),  # Pallavaram
-            (12.9786, 80.2000),  # Meenambakkam
-            (13.0067, 80.2206),  # Guindy
-            (13.0200, 80.2350),  # Saidapet
-            (13.0400, 80.2450),  # Mambalam
-            (13.0569, 80.2497),  # T. Nagar / Anna Salai
-            (13.0620, 80.2560),  # Teynampet
-            (13.0700, 80.2630),  # Thousand Lights
-            (13.0780, 80.2680),  # Park Station
-            (13.0827, 80.2707),  # Chennai Central
+            (12.7260, 80.1893),  # Thiruporur Bus Stand
+            (12.7535, 80.1980),  # Kalavakkam / SSN College
+            (12.7864, 80.2135),  # Kelambakkam
+            (12.8077, 80.2258),  # Padur
+            (12.8361, 80.2036),  # Siruseri IT Park
+            (12.8625, 80.2285),  # Semmancheri
+            (12.8961, 80.2249),  # Sholinganallur Junction
+            (12.9142, 80.2294),  # Karapakkam
+            (12.9386, 80.2377),  # Thoraipakkam
+            (12.9654, 80.2461),  # Perungudi
+            (12.9856, 80.2614),  # Thiruvanmiyur
+            (13.0224, 80.2204),  # Saidapet
+            (13.0418, 80.2341),  # T. Nagar Bus Depot
         ],
     },
-    "MTC-5C-002": {
-        "route": "5C", "name": "Koyambedu → T. Nagar",
+    "MTC-102X-002": {
+        "route": "102X", "name": "Thiruporur → Broadway",
         "waypoints": [
-            (13.0694, 80.1948),  # Koyambedu
-            (13.0620, 80.2050),  # Arumbakkam
-            (13.0580, 80.2121),  # Vadapalani
-            (13.0520, 80.2200),  # Ashok Nagar
-            (13.0480, 80.2280),  # K.K. Nagar
-            (13.0550, 80.2337),  # Ashok Pillar
-            (13.0620, 80.2376),  # Pondy Bazaar
-            (13.0674, 80.2376),  # T. Nagar
-        ],
-    },
-    "MTC-12-003": {
-        "route": "12", "name": "Guindy → Parry's Corner",
-        "waypoints": [
-            (13.0067, 80.2206),  # Guindy
-            (13.0200, 80.2350),  # Saidapet
-            (13.0350, 80.2430),  # Nandanam
-            (13.0450, 80.2480),  # Alwarpet
-            (13.0500, 80.2550),  # R.A. Puram
-            (13.0550, 80.2600),  # Mylapore
-            (13.0600, 80.2650),  # Triplicane
-            (13.0700, 80.2700),  # Flower Bazaar
-            (13.0830, 80.2850),  # Parry's Corner
-        ],
-    },
-    "MTC-47-004": {
-        "route": "47", "name": "Velachery → Central",
-        "waypoints": [
-            (12.9786, 80.2209),  # Velachery
-            (12.9883, 80.2350),  # Taramani
-            (12.9950, 80.2400),  # Raj Bhavan
-            (13.0050, 80.2450),  # Adyar
-            (13.0150, 80.2500),  # Kotturpuram
-            (13.0300, 80.2550),  # Nandanam
-            (13.0500, 80.2600),  # Teynampet
-            (13.0650, 80.2650),  # Egmore
-            (13.0827, 80.2707),  # Central
-        ],
-    },
-    "MTC-GHOST-007": {
-        "route": "29C", "name": "Ambattur → Central (GHOST TARGET)",
-        "waypoints": [
-            (13.1143, 80.1548),  # Ambattur
-            (13.1050, 80.1700),  # Padi
-            (13.0900, 80.1800),  # Anna Nagar
-            (13.0800, 80.1950),  # Aminjikarai
-            (13.0750, 80.2100),  # Chetpet
-            (13.0700, 80.2250),  # Nungambakkam
-            (13.0750, 80.2400),  # Egmore
-            (13.0827, 80.2707),  # Central
+            (12.7260, 80.1893),  # Thiruporur Bus Stand
+            (12.7535, 80.1980),  # Kalavakkam
+            (12.7864, 80.2135),  # Kelambakkam
+            (12.8077, 80.2258),  # Padur
+            (12.8361, 80.2036),  # Siruseri IT Park
+            (12.8625, 80.2285),  # Semmancheri
+            (12.8961, 80.2249),  # Sholinganallur Junction
+            (12.9142, 80.2294),  # Karapakkam
+            (12.9386, 80.2377),  # Thoraipakkam
+            (12.9654, 80.2461),  # Perungudi
+            (12.9896, 80.2486),  # Tidel Park / SRP Tools
+            (13.0050, 80.2550),  # Adyar Depot
+            (13.0335, 80.2733),  # Santhome
+            (13.0542, 80.2837),  # Marina Beach / Queen Mary's
+            (13.0905, 80.2844),  # Broadway (Terminus)
         ],
     },
 }
 
 # Ghost bus events: (bus_id, trigger_step_in_cycle, duration_steps)
-# These repeat every cycle (total_steps=120)
+# Route 19 bus experiences a ghost event (AIS-140 hardware failure)
 GHOST_EVENTS = [
-    ("MTC-GHOST-007", 2, 30),   # Fails at step 2 in each cycle, lasts 30 steps
-    ("MTC-12-003",    50, 15),  # Goes silent at step 50 for 15 steps
+    ("MTC-19-001", 15, 25),   # Fails at step 15 in each cycle, lasts 25 steps
 ]
 
 # Passenger pings to simulate near ghost buses

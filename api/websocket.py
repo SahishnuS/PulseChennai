@@ -81,9 +81,10 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "bus_update_batch",
                         "buses": buses,
                     })
+                    await asyncio.sleep(2)  # Poll every 2 seconds
                     # Check for client messages
                     try:
-                        data = await asyncio.wait_for(ws.receive_text(), timeout=2)
+                        data = await asyncio.wait_for(ws.receive_text(), timeout=0.1)
                         if data == "ping":
                             await ws.send_text("pong")
                     except asyncio.TimeoutError:

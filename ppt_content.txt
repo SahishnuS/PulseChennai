@@ -1,0 +1,273 @@
+--- Slide 1 ---
+[Google Shape;59;p16]: 
+[Google Shape;60;p16]: 
+[Google Shape;61;p16]: 
+[Google Shape;62;p16]: Chennai One Ecosystem
+[Google Shape;63;p16]: Pulse-Chennai
+[Google Shape;64;p16]: 
+[Google Shape;65;p16]: An Advanced Geospatial Engine for Public Transit Reliability
+[Google Shape;66;p16]: 
+[Google Shape;67;p16]: 
+[Google Shape;68;p16]: Target Accuracy
+[Google Shape;69;p16]: 99%
+[Google Shape;70;p16]: 
+[Google Shape;71;p16]: 
+[Google Shape;72;p16]: 
+[Google Shape;73;p16]: Mission
+[Google Shape;74;p16]: Eliminate Ghost Buses
+[Google Shape;75;p16]: 2026
+[Google Shape;76;p16]: Sahishnu S   Jeeva Pravin P K
+Hari Krishna S    Priyan A
+--- Slide 2 ---
+[Google Shape;82;p17]: 
+[Google Shape;83;p17]: The Challenge
+[Google Shape;84;p17]: The "Visibility Gap"
+[Google Shape;85;p17]: Three critical failures plaguing the Chennai One app experience
+[Google Shape;86;p17]: 
+[Google Shape;87;p17]: 
+[Google Shape;88;p17]: 
+[Google Shape;89;p17]: Failure 01
+[Google Shape;90;p17]: The "Ghost Bus"
+[Google Shape;91;p17]: Buses appear on the map but never arrive, or arrive without ever appearing. Commuters wait for buses that don't exist, eroding trust in the entire system.
+[Google Shape;92;p17]: 
+[Google Shape;93;p17]: 
+[Google Shape;94;p17]: Most reported issue
+[Google Shape;95;p17]: 
+[Google Shape;96;p17]: 
+[Google Shape;97;p17]: 
+[Google Shape;98;p17]: Failure 02
+[Google Shape;99;p17]: The "Teleportation" Effect
+[Google Shape;100;p17]: Bus icons stay frozen for minutes, then suddenly "jump" 2 kilometers ahead. Users cannot track actual progress, making trip planning impossible.
+[Google Shape;101;p17]: 
+[Google Shape;102;p17]: 
+[Google Shape;103;p17]: High latency signals
+[Google Shape;104;p17]: 
+[Google Shape;105;p17]: 
+[Google Shape;106;p17]: 
+[Google Shape;107;p17]: Failure 03
+[Google Shape;108;p17]: The "ETA Mirage"
+[Google Shape;109;p17]: Arrival times count down to zero, then reset to 10 minutes. Commuters are left stranded with no reliable information, amplifying transit anxiety.
+[Google Shape;110;p17]: 
+[Google Shape;111;p17]: 
+[Google Shape;112;p17]: Continuous recalculation
+[Google Shape;113;p17]: 
+[Google Shape;114;p17]: 
+[Google Shape;115;p17]: 
+[Google Shape;116;p17]: Root Cause Analysis
+[Google Shape;117;p17]: High-latency GPS hardware (AIS 140) combined with "Linear-Only" tracking logic that cannot handle Chennai's complex traffic surges. The system processes raw coordinates without spatial intelligence, failing to account for real-world road geometry and traffic conditions.
+--- Slide 3 ---
+[Google Shape;123;p18]: 
+[Google Shape;124;p18]: Strategic Objectives
+[Google Shape;125;p18]: Enhancing Transit Intelligence
+[Google Shape;126;p18]: 
+[Google Shape;127;p18]: 
+[Google Shape;128;p18]: 
+[Google Shape;129;p18]: Objective 01
+[Google Shape;130;p18]: Continuous Fluid Visualization
+[Google Shape;131;p18]: Transform from rigid "Point-to-Point" tracking to smooth, continuous movement. Buses glide naturally along routes rather than jumping between discrete positions.
+[Google Shape;132;p18]: 
+[Google Shape;133;p18]: 
+[Google Shape;134;p18]: 1-second updates
+[Google Shape;135;p18]: 
+[Google Shape;136;p18]: 60 FPS animation
+[Google Shape;137;p18]: 
+[Google Shape;138;p18]: 
+[Google Shape;139;p18]: 
+[Google Shape;140;p18]: Objective 02
+[Google Shape;141;p18]: The "Uber" Way: Proximity Search
+[Google Shape;142;p18]: Instead of searching by route, search by Proximity. Users see all nearby buses regardless of route, making spontaneous travel decisions effortless.
+[Google Shape;143;p18]: 
+[Google Shape;144;p18]: 
+[Google Shape;145;p18]: Spatial indexing
+[Google Shape;146;p18]: 
+[Google Shape;147;p18]: Radius-based
+[Google Shape;148;p18]: 
+[Google Shape;149;p18]: 
+[Google Shape;150;p18]: 
+[Google Shape;151;p18]: Objective 03
+[Google Shape;152;p18]: Precision ETA: ±45 Seconds
+[Google Shape;153;p18]: Integrate real-time city-wide traffic "weights" into every prediction. Arrival times that commuters can actually trust, eliminating the ETA Mirage.
+[Google Shape;154;p18]: 
+[Google Shape;155;p18]: 
+[Google Shape;156;p18]: Traffic fusion
+[Google Shape;157;p18]: 
+[Google Shape;158;p18]: Dynamic weights
+[Google Shape;159;p18]: 
+[Google Shape;160;p18]: 
+[Google Shape;161;p18]: 
+[Google Shape;162;p18]: Objective 04
+[Google Shape;163;p18]: Eliminate Ghost Problems
+[Google Shape;164;p18]: Implement a Dual-Verification Layer combining Bus GPS with Driver Companion App. Every bus on the map is a real bus on the road.
+[Google Shape;165;p18]: 
+[Google Shape;166;p18]: 
+[Google Shape;167;p18]: GPS + App
+[Google Shape;168;p18]: 
+[Google Shape;169;p18]: Fail-safe
+--- Slide 4 ---
+[Google Shape;175;p19]: 
+[Google Shape;176;p19]: Technical Innovation
+[Google Shape;177;p19]: "Software-Defined Continuity"
+[Google Shape;178;p19]: Instead of buying new hardware, we use Advanced Spatial Math to fix the data
+[Google Shape;179;p19]: 
+[Google Shape;180;p19]: 
+[Google Shape;181;p19]: 01
+[Google Shape;182;p19]: H3 Hexagonal Indexing
+[Google Shape;183;p19]: Spatial Mesh Architecture
+[Google Shape;184;p19]: Treat Chennai as a digital mesh. By "fusing" live traffic data from the city's grid into the bus's specific hexagon, we adjust the ETA before the bus even hits the traffic jam.
+[Google Shape;185;p19]: 
+[Google Shape;186;p19]: 
+[Google Shape;187;p19]: Uber H3 Library implementation
+[Google Shape;188;p19]: 
+[Google Shape;189;p19]: 
+[Google Shape;190;p19]: 02
+[Google Shape;191;p19]: Predictive Dead Reckoning
+[Google Shape;192;p19]: GPS Dark Zone Navigation
+[Google Shape;193;p19]: When a bus enters a "Signal Dark Zone" (GPS loss), our engine uses the last known speed and road geometry to predictively animate the bus icon. The user never sees a "stale" or "frozen" icon.
+[Google Shape;194;p19]: 
+[Google Shape;195;p19]: 
+[Google Shape;196;p19]: Speed + geometry prediction
+[Google Shape;197;p19]: 
+[Google Shape;198;p19]: 
+[Google Shape;199;p19]: 03
+[Google Shape;200;p19]: Map-Matching (HMM)
+[Google Shape;201;p19]: Hidden Markov Models
+[Google Shape;202;p19]: Use Hidden Markov Models to "snap" messy GPS signals to the exact bus route, ensuring the location is always visually accurate on the road, not drifting into buildings or side streets.
+[Google Shape;203;p19]: 
+[Google Shape;204;p19]: 
+[Google Shape;205;p19]: Probabilistic route snapping
+[Google Shape;206;p19]: 
+[Google Shape;207;p19]: 
+[Google Shape;208;p19]: 04
+[Google Shape;209;p19]: AI State Detection
+[Google Shape;210;p19]: Ghost Bus Prevention
+[Google Shape;211;p19]: To stop "Ghost Buses," our engine uses AI to detect if a bus is Stationary vs. Active. If a bus hasn't moved for 5 minutes at a terminal, it is automatically hidden from the "Nearby" view.
+[Google Shape;212;p19]: 
+[Google Shape;213;p19]: 
+[Google Shape;214;p19]: 5-minute inactivity threshold
+--- Slide 5 ---
+[Google Shape;220;p20]: 
+[Google Shape;221;p20]: System Architecture
+[Google Shape;222;p20]: The "Pulse" Engine
+[Google Shape;223;p20]: For the Technical Judges
+[Google Shape;224;p20]: 
+[Google Shape;225;p20]: 
+[Google Shape;226;p20]: 
+[Google Shape;227;p20]: Input Layer
+[Google Shape;228;p20]: Raw GPS Pings
+[Google Shape;229;p20]: Low-fidelity GPS pings from MTC AIS 140 units—the same problematic hardware causing current issues. We don't replace hardware; we transform the data.
+[Google Shape;230;p20]: 
+[Google Shape;231;p20]: 
+[Google Shape;232;p20]: 
+[Google Shape;233;p20]: Processing Layer
+[Google Shape;234;p20]: Spatial Intelligence Engine
+[Google Shape;235;p20]: 
+[Google Shape;236;p20]: 
+[Google Shape;237;p20]: Uber H3 Library
+[Google Shape;238;p20]: Spatial binning & hexagonal indexing
+[Google Shape;239;p20]: 
+[Google Shape;240;p20]: 
+[Google Shape;241;p20]: Kalman Filters
+[Google Shape;242;p20]: Noise reduction & motion prediction
+[Google Shape;243;p20]: 
+[Google Shape;244;p20]: 
+[Google Shape;245;p20]: 
+[Google Shape;246;p20]: Output Layer
+[Google Shape;247;p20]: WebSocket Stream
+[Google Shape;248;p20]: High-frequency stream delivering smooth, 1-second interval updates to the Chennai One frontend. Real-time, fluid, reliable.
+[Google Shape;249;p20]: 
+[Google Shape;250;p20]: 
+[Google Shape;251;p20]: 
+[Google Shape;252;p20]: Fail-Safe Layer
+[Google Shape;253;p20]: Driver Companion
+[Google Shape;254;p20]: Our "Driver Companion" layer acts as a backup GPS source, instantly taking over if the bus's primary hardware fails.
+[Google Shape;255;p20]: 
+[Google Shape;256;p20]: 
+[Google Shape;257;p20]: 
+[Google Shape;258;p20]: Driver smartphone as backup GPS
+[Google Shape;259;p20]: 
+[Google Shape;260;p20]: 
+[Google Shape;261;p20]: Instant failover (< 2 seconds)
+[Google Shape;262;p20]: 
+[Google Shape;263;p20]: 
+[Google Shape;264;p20]: Dual-verification ensures accuracy
+[Google Shape;265;p20]: 
+[Google Shape;266;p20]: Uptime Guarantee
+[Google Shape;267;p20]: 99.9%
+--- Slide 6 ---
+[Google Shape;273;p21]: 
+[Google Shape;274;p21]: Impact Analysis
+[Google Shape;275;p21]: Social & Economic Impact
+[Google Shape;276;p21]: 
+[Google Shape;277;p21]: 
+[Google Shape;278;p21]: 
+[Google Shape;279;p21]: Social
+[Google Shape;280;p21]: Restoring Trust
+[Google Shape;281;p21]: High accuracy directly reduces "Transit Anxiety," making public buses the first choice for daily travel again. Commuters can plan their journeys with confidence.
+[Google Shape;282;p21]: 
+[Google Shape;283;p21]: 
+[Google Shape;284;p21]: User Satisfaction
+[Google Shape;285;p21]: Dramatically improved experience
+[Google Shape;286;p21]: 
+[Google Shape;287;p21]: 
+[Google Shape;288;p21]: 
+[Google Shape;289;p21]: Economic
+[Google Shape;290;p21]: Revenue Generation
+[Google Shape;291;p21]: ₹30+ Crores
+[Google Shape;292;p21]: Yearly Revenue Increase
+[Google Shape;293;p21]: Estimated 2-5% increase in ridership through better seat utilization and restored commuter confidence.
+[Google Shape;294;p21]: 
+[Google Shape;295;p21]: Ridership Boost
+[Google Shape;296;p21]: 2-5%
+[Google Shape;297;p21]: 
+[Google Shape;298;p21]: 
+[Google Shape;299;p21]: 
+[Google Shape;300;p21]: Operational
+[Google Shape;301;p21]: Fleet Optimization
+[Google Shape;302;p21]: Real-time accuracy allows MTC to see "Bus Bunching" in real-time and take corrective action to balance the fleet, improving service frequency.
+[Google Shape;303;p21]: 
+[Google Shape;304;p21]: 
+[Google Shape;305;p21]: Real-time visibility
+[Google Shape;306;p21]: 
+[Google Shape;307;p21]: Dynamic fleet balancing
+[Google Shape;308;p21]: 
+[Google Shape;309;p21]: 
+[Google Shape;310;p21]: 
+[Google Shape;311;p21]: Triple Win Outcome
+[Google Shape;312;p21]: Commuters win. MTC wins. Chennai wins.
+[Google Shape;313;p21]: 99%
+[Google Shape;314;p21]: Accuracy
+[Google Shape;315;p21]: 
+[Google Shape;316;p21]: ±45s
+[Google Shape;317;p21]: ETA Precision
+[Google Shape;318;p21]: 
+[Google Shape;319;p21]: 0
+[Google Shape;320;p21]: Ghost Buses
+--- Slide 7 ---
+[Google Shape;327;p22]: 
+[Google Shape;328;p22]: 
+[Google Shape;329;p22]: 
+[Google Shape;330;p22]: The Future of Chennai Transit
+[Google Shape;331;p22]: From Chaos to Intelligence
+[Google Shape;332;p22]: Pulse-Chennai transforms raw GPS chaos into intelligent, reliable transit information—restoring commuter confidence and driving economic value for the entire ecosystem.
+[Google Shape;333;p22]: 
+[Google Shape;334;p22]: 
+[Google Shape;335;p22]: 
+[Google Shape;336;p22]: 99%
+[Google Shape;337;p22]: Tracking Accuracy
+[Google Shape;338;p22]: 
+[Google Shape;339;p22]: 
+[Google Shape;340;p22]: 
+[Google Shape;341;p22]: ±45s
+[Google Shape;342;p22]: ETA Precision
+[Google Shape;343;p22]: 
+[Google Shape;344;p22]: 
+[Google Shape;345;p22]: 
+[Google Shape;346;p22]: Zero
+[Google Shape;347;p22]: Ghost Buses
+[Google Shape;348;p22]: 
+[Google Shape;349;p22]: 
+[Google Shape;350;p22]: 
+[Google Shape;351;p22]: ₹30Cr+
+[Google Shape;352;p22]: Yearly Revenue
+[Google Shape;353;p22]: 
+[Google Shape;354;p22]: Pulse-Chennai • Transforming Transit Intelligence
