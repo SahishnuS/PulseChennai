@@ -1,19 +1,13 @@
 """
-Pulse-Chennai AIS-140 Hardware Simulator
-==========================================
-Simulates 2 MTC buses on real Chennai routes:
-  - Route 19:   Thiruporur → T. Nagar (via OMR)
-  - Route 102X: Thiruporur → Broadway (via OMR + Adyar + Marina)
-
-Sends HTTP POST to /api/ingest every 2 seconds.
-Injects ghost bus events at deterministic steps.
-Also simulates passenger pings near ghost bus locations.
-
-Usage:
-    python -m simulator.demo_simulation
+Pulse-Chennai Demo Simulator (Supabase Edition)
+==================================================
+Simulates 6 MTC buses on real Chennai routes.
+Writes directly to Supabase — NO Kafka dependency.
 """
 
-import time
+import os
+import sys
+import math
 import random
 import asyncio
 import logging
@@ -22,188 +16,237 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("simulator")
 
-API_BASE = "http://localhost:8001/api"
+# Load .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+except ImportError:
+    pass
 
-# ── Real Chennai MTC Routes (GPS waypoints sourced from public data) ──
-# Coordinates represent major bus stops / landmarks along each route.
-ROUTES = {
-    "MTC-19-001": {
-        "route": "19", "name": "Thiruporur → T. Nagar",
-        "waypoints": [
-            (12.7260, 80.1893),  # Thiruporur Bus Stand
-            (12.7535, 80.1980),  # Kalavakkam / SSN College
-            (12.7864, 80.2135),  # Kelambakkam
-            (12.8077, 80.2258),  # Padur
-            (12.8361, 80.2036),  # Siruseri IT Park
-            (12.8625, 80.2285),  # Semmancheri
-            (12.8961, 80.2249),  # Sholinganallur Junction
-            (12.9142, 80.2294),  # Karapakkam
-            (12.9386, 80.2377),  # Thoraipakkam
-            (12.9654, 80.2461),  # Perungudi
-            (12.9856, 80.2614),  # Thiruvanmiyur
-            (13.0224, 80.2204),  # Saidapet
-            (13.0418, 80.2341),  # T. Nagar Bus Depot
-        ],
-    },
-    "MTC-102X-002": {
-        "route": "102X", "name": "Thiruporur → Broadway",
-        "waypoints": [
-            (12.7260, 80.1893),  # Thiruporur Bus Stand
-            (12.7535, 80.1980),  # Kalavakkam
-            (12.7864, 80.2135),  # Kelambakkam
-            (12.8077, 80.2258),  # Padur
-            (12.8361, 80.2036),  # Siruseri IT Park
-            (12.8625, 80.2285),  # Semmancheri
-            (12.8961, 80.2249),  # Sholinganallur Junction
-            (12.9142, 80.2294),  # Karapakkam
-            (12.9386, 80.2377),  # Thoraipakkam
-            (12.9654, 80.2461),  # Perungudi
-            (12.9896, 80.2486),  # Tidel Park / SRP Tools
-            (13.0050, 80.2550),  # Adyar Depot
-            (13.0335, 80.2733),  # Santhome
-            (13.0542, 80.2837),  # Marina Beach / Queen Mary's
-            (13.0905, 80.2844),  # Broadway (Terminus)
-        ],
-    },
-}
-
-# Ghost bus events: (bus_id, trigger_step_in_cycle, duration_steps)
-# Route 19 bus experiences a ghost event (AIS-140 hardware failure)
-GHOST_EVENTS = [
-    ("MTC-19-001", 15, 25),   # Fails at step 15 in each cycle, lasts 25 steps
+STOPS_23C = [
+    (12.9824, 80.2588), (12.9831, 80.2541), (12.9799, 80.2576), (12.9836, 80.2463),
+    (12.9901, 80.2378), (12.9986, 80.2369), (13.0182, 80.2213), (13.0365, 80.2129),
+    (13.0418, 80.2341)
 ]
 
-# Passenger pings to simulate near ghost buses
-PASSENGER_COUNT = 8
+STOPS_47A = [
+    (13.0891, 80.2101), (13.0842, 80.2089), (13.0778, 80.2023), 
+    (13.0722, 80.1963), (13.0698, 80.1944)
+]
+
+STOPS_21B = [
+    (13.0827, 80.2756), (13.0792, 80.2731), (13.0198, 80.2234), 
+    (12.9516, 80.1430), (12.9249, 80.1000)
+]
+
+STOPS_M70 = [
+    (12.9799, 80.2576), (12.9986, 80.2369), (13.0182, 80.2213), 
+    (13.0066, 80.2206), (12.9516, 80.1430)
+]
+
+BUSES = [
+  {
+    "id": "BUS_23C_001",
+    "route": "23C",
+    "stops": STOPS_23C,
+    "crowding_pattern": ["low", "medium", "medium", "high", "high", "medium", "low", "low", "low"],
+    "ghost_at_index": 2,
+    "speed_kmh": 16,
+    "start_offset": 0
+  },
+  {
+    "id": "BUS_23C_002",
+    "route": "23C", 
+    "stops": STOPS_23C,
+    "start_offset": 4,
+    "crowding_pattern": ["medium", "high", "high", "medium", "low", "low", "low", "low", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 18
+  },
+  {
+    "id": "BUS_47A_001",
+    "route": "47A",
+    "stops": STOPS_47A,
+    "crowding_pattern": ["low", "low", "medium", "high", "high"],
+    "skip_stop_index": 2,
+    "ghost_at_index": None,
+    "speed_kmh": 14,
+    "start_offset": 0
+  },
+  {
+    "id": "BUS_21B_001",
+    "route": "21B",
+    "stops": STOPS_21B,
+    "crowding_pattern": ["high", "high", "medium", "medium", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 20,
+    "start_offset": 0
+  },
+  {
+    "id": "BUS_21B_002",
+    "route": "21B",
+    "stops": list(reversed(STOPS_21B)),
+    "crowding_pattern": ["low", "medium", "medium", "high", "high"],
+    "ghost_at_index": None,
+    "speed_kmh": 17,
+    "start_offset": 1
+  },
+  {
+    "id": "BUS_M70_001",
+    "route": "M70",
+    "stops": STOPS_M70,
+    "crowding_pattern": ["low", "low", "medium", "medium", "high"],
+    "ghost_at_index": None,
+    "speed_kmh": 22,
+    "start_offset": 0
+  }
+]
 
 
-def interpolate_position(waypoints, step, total_steps):
+def interpolate_position(waypoints, progress):
     """Interpolate GPS position along a waypoint sequence."""
     if not waypoints:
-        return 13.0, 80.2
+        return 13.0, 80.2, 0
+
     n = len(waypoints) - 1
-    progress = (step % total_steps) / total_steps
-    segment = min(int(progress * n), n - 1)
-    t = (progress * n) - segment
+    progress = max(0.0, min(1.0, progress))
+    segment_float = progress * n
+    segment = min(int(segment_float), n - 1)
+    t = segment_float - segment
 
-    lat = waypoints[segment][0] + t * (waypoints[segment+1][0] - waypoints[segment][0])
-    lon = waypoints[segment][1] + t * (waypoints[segment+1][1] - waypoints[segment][1])
+    lat = waypoints[segment][0] + t * (waypoints[segment + 1][0] - waypoints[segment][0])
+    lng = waypoints[segment][1] + t * (waypoints[segment + 1][1] - waypoints[segment][1])
 
-    # Add realistic GPS noise (sigma ~3m ≈ 0.00003 degrees)
     lat += random.gauss(0, 0.00003)
-    lon += random.gauss(0, 0.00003)
-    return lat, lon
+    lng += random.gauss(0, 0.00003)
+
+    return lat, lng, segment
 
 
-def get_realistic_speed(hour):
-    """Chennai speed by time of day."""
-    if 8 <= hour <= 10:
-        return random.uniform(8, 18)
-    elif 17 <= hour <= 20:
-        return random.uniform(5, 15)
-    elif 12 <= hour <= 14:
-        return random.uniform(20, 35)
-    else:
-        return random.uniform(30, 52)
+def get_supabase():
+    from infrastructure.supabase_client import get_supabase as _get
+    client = _get()
+    if not client:
+        logger.error("Supabase client not available. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env")
+        sys.exit(1)
+    return client
 
 
 async def run_simulation():
-    """Main simulation loop."""
-    try:
-        import httpx
-    except ImportError:
-        logger.error("httpx not installed! Run: pip install httpx")
-        return
-
-    total_steps = 120  # Full cycle per bus
+    supabase = get_supabase()
 
     logger.info("=" * 60)
-    logger.info("PULSE-CHENNAI AIS-140 SIMULATOR")
-    logger.info(f"Buses: {len(ROUTES)} | Ghost events: {len(GHOST_EVENTS)}")
-    logger.info(f"API: {API_BASE}")
+    logger.info("PULSE-CHENNAI DEMO SIMULATOR (6 Buses)")
     logger.info("=" * 60)
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        step = 0
-        while True:
-            hour = datetime.now().hour
-            speed_base = get_realistic_speed(hour)
-            cycle_step = step % total_steps
+    # Initialize bus states
+    bus_state = {}
+    for bus in BUSES:
+        n = len(bus["stops"]) - 1
+        initial_progress = min(1.0, bus.get("start_offset", 0) / max(1, n))
+        
+        bus_state[bus["id"]] = {
+            "progress": initial_progress,
+            "direction": 1,
+            "is_ghost": False,
+            "crowding": bus["crowding_pattern"][0] if bus["crowding_pattern"] else "low",
+            "skip_done": False,
+            "ghost_timer": 0
+        }
 
-            tasks = []
-            status_lines = []
+    step = 0
+    PING_INTERVAL = 3
 
-            for bus_id, route_info in ROUTES.items():
-                lat, lon = interpolate_position(route_info["waypoints"], step, total_steps)
+    while True:
+        for bus in BUSES:
+            bus_id = bus["id"]
+            state = bus_state[bus_id]
+            waypoints = bus["stops"]
+            n = len(waypoints) - 1
 
-                # Check ghost events (using cycle_step so they repeat)
-                is_ghost_step = False
-                for g_bus, g_trigger, g_duration in GHOST_EVENTS:
-                    if bus_id == g_bus and g_trigger <= cycle_step < g_trigger + g_duration:
-                        is_ghost_step = True
-                        break
+            # Advance position
+            route_length_estimate = n * 0.005
+            speed_progress = (bus["speed_kmh"] / 3600 * PING_INTERVAL * 0.00001) / max(route_length_estimate, 0.001)
+            state["progress"] += speed_progress * state["direction"]
 
-                if is_ghost_step:
-                    # Inject faulty hardware data
-                    payload = {
-                        "device_id": bus_id,
-                        "lat": lat,
-                        "lng": lon,
-                        "speed": random.uniform(120, 180),   # Impossible speed
-                        "heading": random.uniform(0, 360),
-                        "jitter": random.uniform(100, 500),   # Massive jitter
-                        "age_s": random.uniform(0.5, 3),
-                        "route": route_info["route"],
-                        "near": route_info["name"],
-                    }
-                    status_lines.append(f"🚨 {bus_id:20s} | GHOST | speed=150+ | step {step}")
+            # Bounce
+            if state["progress"] >= 1.0:
+                state["progress"] = 1.0
+                state["direction"] = -1
+                state["skip_done"] = False
+            elif state["progress"] <= 0.0:
+                state["progress"] = 0.0
+                state["direction"] = 1
+                state["skip_done"] = False
 
-                    # Also send passenger pings near this ghost bus
-                    for i in range(PASSENGER_COUNT):
-                        p_lat = lat + random.gauss(0, 0.0005)
-                        p_lon = lon + random.gauss(0, 0.0005)
-                        p_payload = {
-                            "lat": p_lat,
-                            "lon": p_lon,
-                            "accuracy_m": random.uniform(5, 20),
-                            "session_token": f"passenger_{step}_{i}",
-                        }
-                        tasks.append(client.post(f"{API_BASE}/passenger-ping", json=p_payload))
-                else:
-                    payload = {
-                        "device_id": bus_id,
-                        "lat": lat,
-                        "lng": lon,
-                        "speed": speed_base + random.uniform(-5, 5),
-                        "heading": random.uniform(0, 360),
-                        "jitter": random.uniform(0.5, 5),
-                        "age_s": random.uniform(0.1, 1.5),
-                        "route": route_info["route"],
-                        "near": route_info["name"],
-                    }
-                    status_lines.append(f"✅ {bus_id:20s} | OK    | speed={payload['speed']:.0f}km/h")
+            lat, lng, stop_index = interpolate_position(waypoints, state["progress"])
 
-                tasks.append(client.post(f"{API_BASE}/ingest", json=payload))
+            # Crowding pattern based on stop
+            if bus.get("crowding_pattern"):
+                safe_index = min(stop_index, len(bus["crowding_pattern"]) - 1)
+                state["crowding"] = bus["crowding_pattern"][safe_index]
 
-            # Send all pings concurrently
+            reliability_score = round(random.uniform(0.85, 0.98), 2)
+
+            # Ghost logic
+            if bus.get("ghost_at_index") is not None:
+                if stop_index == bus["ghost_at_index"] and state["direction"] == 1:
+                    state["is_ghost"] = True
+                    reliability_score = round(random.uniform(0.05, 0.25), 2)
+                elif stop_index != bus["ghost_at_index"]:
+                    state["is_ghost"] = False
+
+            # Skip stop logic (47A skipping Thirumangalam)
+            if bus.get("skip_stop_index") is not None:
+                if stop_index == bus["skip_stop_index"] and not state["skip_done"] and state["direction"] == 1:
+                    state["progress"] = min((bus["skip_stop_index"] + 1) / max(1, n) + 0.01, 1.0)
+                    lat, lng, stop_index = interpolate_position(waypoints, state["progress"])
+                    state["skip_done"] = True
+                    
+                    try:
+                        supabase.table("alerts").insert({
+                            "bus_id": bus_id,
+                            "type": "stop_skip",
+                            "message": f"Bus {bus['route']} skipped stop {bus['skip_stop_index']}",
+                            "message_ta": f"{bus['route']} பேருந்து நிறுத்தத்தை தவிர்த்தது",
+                        }).execute()
+                    except Exception as e:
+                        pass
+
+            # Compute heading
+            heading = random.uniform(0, 360)
+            if stop_index < n:
+                next_wp = waypoints[stop_index + 1]
+                heading = math.degrees(math.atan2(
+                    next_wp[1] - waypoints[stop_index][1],
+                    next_wp[0] - waypoints[stop_index][0]
+                )) % 360
+
+            speed = bus["speed_kmh"] + random.uniform(-2, 2)
+            if state["is_ghost"]:
+                speed = 0
+
+            row = {
+                "id": bus_id,
+                "route": bus["route"],
+                "lat": round(lat, 6),
+                "lng": round(lng, 6),
+                "speed": round(speed, 1),
+                "heading": round(heading, 1),
+                "reliability_score": reliability_score,
+                "is_ghost": state["is_ghost"],
+                "crowding": state["crowding"],
+                "last_seen": datetime.now().isoformat(),
+                "stop_index": stop_index,
+            }
+
             try:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                errors = [r for r in results if isinstance(r, Exception)]
-                if errors:
-                    logger.warning(f"  {len(errors)} request(s) failed")
+                supabase.table("buses").upsert(row, on_conflict="id").execute()
             except Exception as e:
-                logger.error(f"Batch send failed: {e}")
+                logger.error(f"Upsert failed for {bus_id}: {e}")
 
-            # Print status
-            if step % 5 == 0:
-                logger.info(f"\n{'─'*55}")
-                logger.info(f"Step {step} | {datetime.now().strftime('%H:%M:%S')}")
-                for line in status_lines:
-                    logger.info(f"  {line}")
-
-            step += 1
-            await asyncio.sleep(2)  # 2-second ping interval
-
+        step += 1
+        await asyncio.sleep(PING_INTERVAL)
 
 if __name__ == "__main__":
     try:

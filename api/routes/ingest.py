@@ -1,94 +1,84 @@
 """
-GPS Telemetry Ingestion Route
-==============================
+GPS Telemetry Ingestion Route (Supabase Edition)
+====================================================
 POST /api/ingest — receives raw GPS pings from AIS-140 devices or the simulator.
-Publishes to Kafka (or processes directly if Kafka is unavailable).
-Returns 202 Accepted immediately — processing is async.
+Runs hardware reliability scorer, upserts to Supabase.
 """
 
 import time
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Ingestion"])
 
+# Stateful scorer singleton
+from hardware.reliability_scorer import HardwareReliabilityScorer
+_scorer = HardwareReliabilityScorer(decay_rate=0.3)
+
 
 class GPSPingRequest(BaseModel):
     """Incoming GPS telemetry from an AIS-140 device."""
-    device_id: str = Field(..., description="Bus device ID (e.g. MTC-21G-001)")
+    bus_id: Optional[str] = Field(None, description="Bus ID")
+    device_id: Optional[str] = Field(None, description="Device ID (legacy)")
     lat: float = Field(..., ge=-90, le=90)
-    lng: float = Field(None, ge=-180, le=180)
-    lon: float = Field(None, ge=-180, le=180)  # Accept both lng/lon
-    speed: float = Field(0, ge=0, description="Speed in km/h")
+    lng: Optional[float] = Field(None, ge=-180, le=180)
+    lon: Optional[float] = Field(None, ge=-180, le=180)
+    speed: float = Field(0, ge=0)
     heading: float = Field(0, ge=0, le=360)
-    jitter: float = Field(0, ge=0)
-    age_s: float = Field(0, ge=0)
-    route: str = Field("", description="Route ID")
-    near: str = Field("", description="Nearest landmark")
-    accuracy_m: float = Field(10.0)
-    timestamp: Optional[float] = Field(None, description="Unix timestamp ms")
+    route: str = Field("")
+    timestamp: Optional[float] = None
+
+    def get_bus_id(self) -> str:
+        return self.bus_id or self.device_id or "unknown"
 
     def get_lng(self) -> float:
         return self.lng if self.lng is not None else (self.lon or 0)
 
 
-class PassengerPingRequest(BaseModel):
-    """Incoming passenger smartphone ping (anonymized)."""
-    lat: float = Field(..., ge=-90, le=90)
-    lon: float = Field(..., ge=-180, le=180)
-    accuracy_m: float = Field(10.0)
-    session_token: str = Field(..., description="Random UUID, not tied to identity")
-
-
-@router.post("/ingest", status_code=202)
+@router.post("/ingest")
 async def ingest_gps_ping(ping: GPSPingRequest):
-    """Ingest a single GPS ping. Publishes to Kafka for async processing."""
-    from infrastructure import kafka_producer
+    """Ingest a GPS ping: score reliability, upsert to Supabase."""
+    from infrastructure.supabase_client import get_supabase
 
-    message = {
-        "bus_id": ping.device_id,
-        "lat": ping.lat,
-        "lng": ping.get_lng(),
-        "speed": ping.speed,
-        "heading": ping.heading,
-        "jitter": ping.jitter,
-        "age_s": ping.age_s,
-        "route_id": ping.route,
-        "near": ping.near,
-        "accuracy_m": ping.accuracy_m,
-        "timestamp": ping.timestamp or (time.time() * 1000),
+    bid = ping.get_bus_id()
+    lng_val = ping.get_lng()
+    ts = ping.timestamp or (time.time() * 1000)
+
+    # Run hardware reliability scorer
+    score = _scorer.score_ping(
+        bus_id=bid,
+        lat=ping.lat,
+        lng=lng_val,
+        timestamp=ts,
+        speed=ping.speed,
+    )
+
+    is_ghost = score < 0.4
+
+    # Upsert to Supabase
+    supabase = get_supabase()
+    if supabase:
+        try:
+            supabase.table("buses").upsert({
+                "id": bid,
+                "route": ping.route,
+                "lat": ping.lat,
+                "lng": lng_val,
+                "speed": ping.speed,
+                "heading": ping.heading,
+                "reliability_score": round(score, 4),
+                "is_ghost": is_ghost,
+                "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }, on_conflict="id").execute()
+        except Exception as e:
+            logger.warning(f"Supabase upsert failed: {e}")
+
+    return {
+        "received": True,
+        "bus_id": bid,
+        "reliability_score": round(score, 4),
+        "is_ghost": is_ghost,
     }
-
-    success = await kafka_producer.send_gps_ping(message)
-
-    if success:
-        return {"status": "accepted", "bus_id": ping.device_id, "pipeline": "kafka"}
-    else:
-        # In degraded mode (no Kafka, no fallback), still accept and log
-        logger.warning(f"Could not queue GPS ping for {ping.device_id} — no pipeline available")
-        return {"status": "degraded", "bus_id": ping.device_id, "pipeline": "none"}
-
-
-
-@router.post("/passenger-ping", status_code=202)
-async def ingest_passenger_ping(ping: PassengerPingRequest):
-    """Ingest an anonymized passenger smartphone ping."""
-    from infrastructure import kafka_producer
-
-    message = {
-        "lat": ping.lat,
-        "lon": ping.lon,
-        "accuracy_m": ping.accuracy_m,
-        "session_token": ping.session_token,
-        "timestamp": time.time() * 1000,
-    }
-
-    success = await kafka_producer.send_passenger_ping(message)
-
-    if success:
-        return {"status": "accepted", "session": ping.session_token}
-    else:
-        raise HTTPException(status_code=503, detail="Failed to queue passenger ping.")

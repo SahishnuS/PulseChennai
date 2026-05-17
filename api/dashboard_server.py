@@ -1,11 +1,11 @@
 """
-Pulse-Chennai Dashboard Server
-================================
-FastAPI application factory with async lifespan management.
-Starts/stops all subsystems: Database, Redis, Kafka, TomTom, GNN.
+Pulse-Chennai Dashboard Server (Free Tier Edition)
+=====================================================
+FastAPI application using Supabase + Upstash Redis.
+No Kafka, no local Redis, no local PostgreSQL required.
 
 Usage:
-    uvicorn api.dashboard_server:app --host 0.0.0.0 --port 8001
+    uvicorn api.dashboard_server:app --host 0.0.0.0 --port 8000
 """
 
 import os
@@ -37,114 +37,131 @@ except ImportError:
     logger.warning("python-dotenv not installed. Using system env vars only.")
 
 
+# ── Background polling task ──
+_polling_task = None
+
+
+async def _bus_polling_loop():
+    """Background task: poll Supabase buses table, run reliability scorer, flag ghosts."""
+    from infrastructure.supabase_client import get_supabase
+    from infrastructure import upstash_redis
+    from hardware.reliability_scorer import HardwareReliabilityScorer
+    import time, json
+
+    scorer = HardwareReliabilityScorer(decay_rate=0.3, ghost_threshold=0.4)
+
+    while True:
+        try:
+            supabase = get_supabase()
+            if not supabase:
+                await asyncio.sleep(3)
+                continue
+
+            # Fetch all buses
+            result = supabase.table("buses").select("*").execute()
+            buses = result.data if result.data else []
+
+            for bus in buses:
+                bus_id = bus.get("id", "")
+                lat = bus.get("lat", 0)
+                lng = bus.get("lng", 0)
+                speed = bus.get("speed", 0)
+
+                # Run reliability scorer
+                score = scorer.score_ping(
+                    bus_id=bus_id,
+                    lat=lat,
+                    lng=lng,
+                    timestamp=time.time() * 1000,
+                    speed=speed,
+                )
+
+                is_ghost = score < 0.4
+
+                # Update bus if ghost status changed
+                if is_ghost != bus.get("is_ghost", False):
+                    try:
+                        supabase.table("buses").update({
+                            "is_ghost": is_ghost,
+                            "reliability_score": round(score, 4),
+                        }).eq("id", bus_id).execute()
+                    except Exception as e:
+                        logger.debug(f"Failed to update ghost status for {bus_id}: {e}")
+
+                # Publish update to Upstash Redis channel
+                update_data = {
+                    "type": "bus_update",
+                    "bus_id": bus_id,
+                    "lat": lat,
+                    "lng": lng,
+                    "speed": speed,
+                    "is_ghost": is_ghost,
+                    "reliability_score": round(score, 4),
+                    "route": bus.get("route", ""),
+                    "crowding": bus.get("crowding", "low"),
+                    "stop_index": bus.get("stop_index", 0),
+                }
+                await upstash_redis.publish_json("bus-updates", update_data)
+
+        except Exception as e:
+            logger.warning(f"Bus polling error: {e}")
+
+        await asyncio.sleep(3)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown of all subsystems."""
+    global _polling_task
+
     logger.info("=" * 60)
-    logger.info("PULSE-CHENNAI ENGINE STARTING")
+    logger.info("PULSE-CHENNAI ENGINE STARTING (Free Tier)")
     logger.info("=" * 60)
 
-    # ── 1. Database ──
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url:
-        from database import connection
-        await connection.connect(db_url)
-        # Run migrations if using local DB
-        migration_path = os.path.join(os.path.dirname(__file__), "..", "database", "migrations", "001_initial.sql")
-        if os.path.exists(migration_path):
-            await connection.execute_migration(migration_path)
+    # ── 1. Initialize Supabase ──
+    from infrastructure.supabase_client import get_supabase
+    sb = get_supabase()
+    if sb:
+        logger.info("✅ Supabase connected")
     else:
-        logger.warning("DATABASE_URL not set. PostgreSQL features disabled.")
+        logger.warning("⚠ Supabase not configured — check SUPABASE_URL and SUPABASE_SERVICE_KEY")
 
-    # ── 2. Redis ──
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    from infrastructure import async_redis
-    await async_redis.connect(redis_url)
+    # ── 2. Initialize Upstash Redis ──
+    from infrastructure import upstash_redis
+    await upstash_redis.init()
+    health = await upstash_redis.health_check()
+    if health.get("status") == "connected":
+        logger.info("✅ Upstash Redis connected")
+    else:
+        logger.warning(f"⚠ Upstash Redis: {health}")
 
-    # ── 3. Kafka Producer ──
-    kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    from infrastructure import kafka_producer
-    from fusion.message_handler import handle_message
-
-    # Set fallback: if Kafka is down, process messages directly
-    kafka_producer.set_fallback_handler(handle_message)
-    await kafka_producer.start(kafka_servers)
-
-    # ── 4. Kafka Consumer ──
-    from infrastructure import kafka_consumer
-    topics = [
-        os.getenv("KAFKA_TOPIC_GPS", "bus-gps-pings"),
-        os.getenv("KAFKA_TOPIC_PASSENGER", "passenger-pings"),
-    ]
-    group_id = os.getenv("KAFKA_CONSUMER_GROUP", "pulse-chennai-consumer")
-    await kafka_consumer.start(kafka_servers, topics, group_id, handle_message)
-
-    # ── 5. TomTom Traffic Refresh ──
-    tomtom_key = os.getenv("TOMTOM_API_KEY", "")
-    from traffic import tomtom_client
-    await tomtom_client.init(api_key=tomtom_key if tomtom_key else None)
-    refresh_interval = int(os.getenv("TOMTOM_REFRESH_INTERVAL", "120"))
-    await tomtom_client.start_refresh_loop(refresh_interval)
-
-    # ── 7. Preload GNN Inference Pipeline ──
-    try:
-        from api.routes.predict import get_pipeline
-        # Running synchronously is fine here since it only happens once at startup
-        get_pipeline()
-        logger.info("Preloaded InferencePipeline with GNN model")
-    except Exception as e:
-        logger.warning(f"Failed to preload InferencePipeline: {e}")
+    # ── 3. Start background polling loop ──
+    _polling_task = asyncio.create_task(_bus_polling_loop())
+    logger.info("✅ Background bus polling started (3s interval)")
 
     logger.info("=" * 60)
-    logger.info("PULSE-CHENNAI ENGINE READY — http://0.0.0.0:8001")
+    logger.info("PULSE-CHENNAI ENGINE READY — http://0.0.0.0:8000")
     logger.info("=" * 60)
-
-    # ── 6. Seed initial bus data into the speed layer ──
-    # Ensures the dashboard shows buses immediately on load
-    import random
-    # Seed positions match the FIRST waypoint of each simulator route exactly,
-    # so markers do not jump when the simulator starts sending live data.
-    _SEED_BUSES = [
-        {"id": "MTC-19-001",   "route": "19",   "lat": 12.7427, "lng": 80.2297, "speed": 35.0, "hw": 0.95},
-        {"id": "MTC-102X-002", "route": "102X", "lat": 12.7427, "lng": 80.2297, "speed": 38.0, "hw": 0.93},
-    ]
-    for seed in _SEED_BUSES:
-        state = {
-            "lat": seed["lat"],
-            "lng": seed["lng"],
-            "speed": seed["speed"],
-            "heading": random.uniform(0, 360),
-            "hw_score": seed["hw"],
-            "is_ghost": False,
-            "status": "active",
-            "route_id": seed["route"],
-            "h3_cell": "",
-            "passenger_count": random.randint(15, 55),
-            "source": "AIS140",
-            "confidence": 0.98,
-        }
-        await async_redis.set_bus_state(seed["id"], state)
-    logger.info(f"Seeded {len(_SEED_BUSES)} buses into speed layer.")
 
     yield  # ─── Application is running ───
 
     # ── Shutdown ──
     logger.info("Shutting down Pulse-Chennai...")
-    await kafka_consumer.stop()
-    await kafka_producer.stop()
-    await tomtom_client.close()
-    await async_redis.disconnect()
-    if db_url:
-        from database import connection
-        await connection.disconnect()
+    if _polling_task:
+        _polling_task.cancel()
+        try:
+            await _polling_task
+        except asyncio.CancelledError:
+            pass
+    await upstash_redis.close()
     logger.info("Pulse-Chennai shutdown complete.")
 
 
 # ── Create FastAPI app ──
 app = FastAPI(
     title="Pulse-Chennai",
-    description="TEST DESCRIPTION",
-    version="2.0.0",
+    description="Cloud-native transit intelligence engine for Chennai MTC buses",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -160,46 +177,60 @@ app.add_middleware(
 from api.routes.ingest import router as ingest_router
 from api.routes.buses import router as buses_router
 from api.routes.health import router as health_router
-from api.routes.predict import router as predict_router
-from api.routes.eta import router as eta_router
-from api.websocket import router as ws_router
+from api.routes.stops import router as stops_router
+from api.routes.alerts import router as alerts_router
+from api.routes.ai import router as ai_router
 
 app.include_router(ingest_router)
 app.include_router(buses_router)
 app.include_router(health_router)
-app.include_router(predict_router)
-app.include_router(eta_router)
-app.include_router(ws_router)
+app.include_router(stops_router)
+app.include_router(alerts_router)
+app.include_router(ai_router)
 
-# ── Serve frontend ──
+# ── Serve frontend (Vite build output) ──
+_FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 _UI_DIR = os.path.join(os.path.dirname(__file__), "..", "ui")
 
-if os.path.exists(_UI_DIR):
-    app.mount("/static", StaticFiles(directory=_UI_DIR), name="static")
 
 @app.get("/api/config")
 async def get_config():
     """Return public configuration required by the frontend."""
-    return {"tomtom_api_key": os.getenv("TOMTOM_API_KEY", "")}
+    return {
+        "supabase_url": os.getenv("VITE_SUPABASE_URL", ""),
+        "supabase_anon_key": os.getenv("VITE_SUPABASE_ANON_KEY", ""),
+    }
 
 
-@app.get("/")
-async def serve_dashboard():
-    index = os.path.join(_UI_DIR, "index.html")
-    if os.path.exists(index):
-        return FileResponse(index)
-    return {"message": "Pulse-Chennai API is running. No frontend found at /ui/index.html"}
+# Serve static assets from frontend dist if it exists
+if os.path.exists(_FRONTEND_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_FRONTEND_DIST, "assets")), name="assets")
 
 
-@app.get("/eta")
-async def serve_eta_page():
-    """Serve the standalone ETA Calculator page."""
-    eta_page = os.path.join(_UI_DIR, "eta.html")
-    if os.path.exists(eta_page):
-        return FileResponse(eta_page)
-    return {"message": "ETA page not found at /ui/eta.html"}
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    """Serve the React SPA. Falls back to index.html for client-side routing."""
+    # Try frontend dist first
+    if os.path.exists(_FRONTEND_DIST):
+        file_path = os.path.join(_FRONTEND_DIST, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index = os.path.join(_FRONTEND_DIST, "index.html")
+        if os.path.exists(index):
+            return FileResponse(index)
+
+    # Fallback to ui/ directory
+    if os.path.exists(_UI_DIR):
+        file_path = os.path.join(_UI_DIR, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index = os.path.join(_UI_DIR, "index.html")
+        if os.path.exists(index):
+            return FileResponse(index)
+
+    return {"message": "Pulse-Chennai API is running. Build the frontend with: cd frontend && npm run build"}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api.dashboard_server:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("api.dashboard_server:app", host="0.0.0.0", port=8000, reload=True)
