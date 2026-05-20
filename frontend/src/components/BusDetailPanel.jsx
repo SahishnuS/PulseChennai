@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { MapPin, Navigation, Ticket } from 'lucide-react';
 import { API_BASE } from '../lib/supabase';
+import ETABadge from './ETABadge';
+import { getPassengerId } from '../lib/passenger';
 
 function computeLocalETA(busLat, busLng, dstLat, dstLng, speedKmph) {
   // Haversine distance
@@ -35,6 +38,14 @@ function computeLocalETA(busLat, busLng, dstLat, dstLng, speedKmph) {
 export default function BusDetailPanel({ bus, onClose, language }) {
   const [etaData, setEtaData] = useState(null);
   const [etaLoading, setEtaLoading] = useState(false);
+  
+  // Boarding Flow States
+  const [hasActiveTicket, setHasActiveTicket] = useState(false);
+  const [showBoardingModal, setShowBoardingModal] = useState(false);
+  const [stops, setStops] = useState([]);
+  const [selectedStop, setSelectedStop] = useState('');
+  const [boardingLoading, setBoardingLoading] = useState(false);
+  const [activeTicketData, setActiveTicketData] = useState(null);
 
   useEffect(() => {
     if (!bus) { setEtaData(null); return; }
@@ -55,7 +66,8 @@ export default function BusDetailPanel({ bus, onClose, language }) {
               best_eta: data.eta.best_eta_minutes,
               distance_km: data.eta.distance_km,
               method: data.eta.method_used || 'ML Prediction',
-              confidence: data.eta.confidence > 0.85 ? 'high' : data.eta.confidence > 0.6 ? 'medium' : 'low',
+              confidence_pct:   data.confidence_pct   ?? Math.round((data.eta.confidence ?? 0.72) * 97),
+              confidence_label: data.confidence_label ?? (data.eta.confidence > 0.85 ? 'HIGH' : data.eta.confidence > 0.6 ? 'MODERATE' : 'LOW'),
               traffic_delay: data.eta.traffic_delay_minutes,
               arrival_time: data.eta.arrival_time,
               source: data.eta.source_data || 'ML + TomTom',
@@ -68,7 +80,11 @@ export default function BusDetailPanel({ bus, onClose, language }) {
 
       // Fallback: local time-of-day calculation
       const local = computeLocalETA(bus.lat, bus.lng, 13.0338, 80.2326, bus.speed || 0);
-      setEtaData(local);
+      setEtaData({
+        ...local,
+        confidence_pct:   local.confidence === 'high' ? 78 : local.confidence === 'medium' ? 58 : 38,
+        confidence_label: local.confidence === 'high' ? 'HIGH' : local.confidence === 'medium' ? 'MODERATE' : 'LOW',
+      });
       setEtaLoading(false);
     };
 
@@ -77,12 +93,57 @@ export default function BusDetailPanel({ bus, onClose, language }) {
     return () => clearInterval(interval);
   }, [bus?.id, bus?.lat, bus?.lng]);
 
-  if (!bus) return null;
+  useEffect(() => {
+    if (!bus) return;
+    // Check if user has active ticket
+    const pid = getPassengerId();
+    fetch(`${API_BASE}/api/passengers/${pid}/tickets`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const active = data.find(t => t.status === 'active');
+        if (active) {
+          setHasActiveTicket(true);
+          setActiveTicketData(active);
+        }
+      })
+      .catch(console.error);
+      
+    // Fetch stops for modal
+    fetch(`${API_BASE}/api/stops?route=${bus.route}`)
+      .then(r => r.ok ? r.json() : { stops: [] })
+      .then(data => {
+        setStops(data.stops || []);
+        if (data.stops && data.stops.length > 0) setSelectedStop(data.stops[0].stop_name);
+      })
+      .catch(console.error);
+  }, [bus?.id, bus?.route]);
 
-  const confColor = etaData?.confidence === 'high' ? '#22C55E'
-    : etaData?.confidence === 'medium' ? '#F59E0B' : '#EF4444';
-  const confIcon = etaData?.confidence === 'high' ? '✅'
-    : etaData?.confidence === 'medium' ? '⚠️' : '👻';
+  const handleBoard = async () => {
+    setBoardingLoading(true);
+    try {
+      const pid = getPassengerId();
+      const res = await fetch(`${API_BASE}/api/passengers/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          passenger_id: pid,
+          bus_id: bus.id,
+          boarding_stop: selectedStop
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHasActiveTicket(true);
+        setActiveTicketData(data);
+        setShowBoardingModal(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setBoardingLoading(false);
+  };
+
+  if (!bus) return null;
 
   return (
     <div style={{
@@ -90,12 +151,12 @@ export default function BusDetailPanel({ bus, onClose, language }) {
       bottom: '16px',
       left: '16px',
       zIndex: 1000,
-      background: 'var(--bg-secondary)',
-      border: '1px solid var(--border)',
+      background: 'var(--color-bg-panel)',
+      border: '1px solid var(--color-border)',
       borderRadius: '16px',
       padding: '20px',
       width: '360px',
-      boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+      boxShadow: 'var(--shadow-panel)',
       animation: 'slideDown 0.3s ease-out',
       display: 'flex',
       flexDirection: 'column',
@@ -135,13 +196,13 @@ export default function BusDetailPanel({ bus, onClose, language }) {
 
       {/* Live Metrics */}
       <div style={{ display: 'flex', gap: '12px' }}>
-        <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>SPEED</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{bus.speed?.toFixed(0)} km/h</div>
+        <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>SPEED</div>
+          <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{bus.speed?.toFixed(0)} km/h</div>
         </div>
-        <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>CROWDING</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 600, color: bus.crowding === 'high' ? 'var(--danger)' : 'var(--success)' }}>
+        <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>CROWDING</div>
+          <div style={{ fontSize: '1.1rem', fontWeight: 600, color: bus.crowding === 'high' ? 'var(--color-danger)' : 'var(--color-success)' }}>
             {bus.crowding?.toUpperCase()}
           </div>
         </div>
@@ -155,18 +216,9 @@ export default function BusDetailPanel({ bus, onClose, language }) {
         padding: '16px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {language === 'en' ? '⚡ ML-Predicted ETA' : '⚡ AI கணிப்பு ETA'}
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {language === 'en' ? 'ML-Predicted ETA' : 'AI கணிப்பு ETA'}
           </span>
-          {etaData && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: '12px',
-              fontSize: '0.7rem', fontWeight: 600, color: confColor,
-            }}>
-              {confIcon} {etaData.confidence}
-            </span>
-          )}
         </div>
 
         {etaLoading ? (
@@ -175,33 +227,26 @@ export default function BusDetailPanel({ bus, onClose, language }) {
           </div>
         ) : etaData ? (
           <>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '6px' }}>
-              <span style={{
-                fontSize: '2.2rem', fontWeight: 800,
-                background: 'linear-gradient(135deg, #3B82F6, #06B6D4)',
-                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              }}>
-                {etaData.best_eta ? Math.round(etaData.best_eta) : `${etaData.eta_min}–${etaData.eta_max}`}
-              </span>
-              <span style={{ fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 500 }}>min</span>
-              {etaData.arrival_time && (
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                  Arrives ~{etaData.arrival_time}
-                </span>
-              )}
+            {/* ETABadge: ETA number + confidence arc */}
+            <div style={{ marginBottom: '10px' }}>
+              <ETABadge
+                eta_minutes={etaData.best_eta ?? ((etaData.eta_min + etaData.eta_max) / 2)}
+                confidence_pct={etaData.confidence_pct ?? 55}
+                confidence_label={etaData.confidence_label ?? 'MODERATE'}
+              />
             </div>
-            <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {etaData.distance_km && <span>📍 {etaData.distance_km} km</span>}
+            <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              {etaData.distance_km && <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><MapPin size={12} /> {etaData.distance_km} km</span>}
               {etaData.traffic_delay > 0 && (
-                <span style={{ color: '#F59E0B' }}>🚦 +{etaData.traffic_delay} min delay</span>
+                <span style={{ color: 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '4px' }}><Navigation size={12} /> +{etaData.traffic_delay} min delay</span>
               )}
             </div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '6px', opacity: 0.7 }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginTop: '6px', opacity: 0.7 }}>
               {etaData.source || etaData.method}
             </div>
           </>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>ETA unavailable</div>
+          <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>ETA unavailable</div>
         )}
       </div>
 
@@ -225,20 +270,98 @@ export default function BusDetailPanel({ bus, onClose, language }) {
       {/* Action Buttons */}
       <div style={{ display: 'flex', gap: '12px', marginTop: '2px' }}>
         <button style={{
-          flex: 1, background: 'var(--accent)', color: 'white',
-          border: 'none', padding: '12px', borderRadius: '8px',
-          fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.2s'
+          flex: 1, background: 'var(--color-bg-elevated)', color: 'var(--color-text-primary)',
+          border: '1px solid var(--color-border)', padding: '12px', borderRadius: '8px',
+          fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
         }}>
-          Track This Bus
+          <Navigation size={18} />
+          Track
         </button>
-        <button style={{
-          flex: 1, background: 'var(--bg-tertiary)', color: 'white',
-          border: '1px solid var(--border)', padding: '12px', borderRadius: '8px',
-          fontWeight: 600, cursor: 'pointer'
-        }}>
-          Set as My Bus
-        </button>
+        {!hasActiveTicket ? (
+          <button 
+            onClick={() => setShowBoardingModal(true)}
+            style={{
+              flex: 2, background: 'var(--color-accent)', color: '#080C14',
+              border: 'none', padding: '12px', borderRadius: '8px',
+              fontWeight: 700, cursor: 'pointer', transition: 'opacity 0.2s', boxShadow: 'var(--shadow-accent)',
+              display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
+            }}>
+            <Ticket size={18} />
+            BOARD THIS BUS
+          </button>
+        ) : (
+          <button style={{
+              flex: 2, background: 'var(--color-success)', color: '#080C14',
+              border: 'none', padding: '12px', borderRadius: '8px',
+              fontWeight: 700, cursor: 'not-allowed', opacity: 0.9,
+              display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
+          }}>
+            TICKET ACTIVE
+          </button>
+        )}
       </div>
+
+      {/* Boarding Modal */}
+      {showBoardingModal && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.8)', zIndex: 1010, borderRadius: '16px',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{ background: 'var(--color-bg-panel)', padding: '20px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', fontFamily: 'var(--font-data)' }}>Board {bus.id}</h3>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>Select Boarding Stop</label>
+              <select 
+                value={selectedStop} 
+                onChange={e => setSelectedStop(e.target.value)}
+                style={{ width: '100%', padding: '10px', background: 'var(--color-bg-elevated)', color: 'white', border: '1px solid var(--color-border)', borderRadius: '8px' }}
+              >
+                {stops.length > 0 ? stops.map(s => (
+                  <option key={s.stop_id} value={s.stop_name}>{s.stop_name}</option>
+                )) : (
+                  <option value="Unknown Stop">Unknown Stop</option>
+                )}
+              </select>
+            </div>
+
+            <div style={{ background: 'rgba(0,212,255,0.1)', padding: '12px', borderRadius: '8px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-accent)' }}>Estimated Fare</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-data)' }}>₹14 – ₹32 depending on destination</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={() => setShowBoardingModal(false)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid var(--color-border)', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleBoard} disabled={boardingLoading} style={{ flex: 1, padding: '10px', background: 'var(--color-accent)', border: 'none', color: '#080C14', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+                {boardingLoading ? 'Confirming...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {hasActiveTicket && activeTicketData && !showBoardingModal && activeTicketData.ticket_id && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.9)', zIndex: 1020, borderRadius: '16px',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <Ticket size={48} color="var(--color-accent)" style={{ marginBottom: '16px' }} />
+          <h2 style={{ fontFamily: 'var(--font-data)', margin: '0 0 8px 0', color: 'var(--color-accent)' }}>BOARDING SUCCESS</h2>
+          <div style={{ fontSize: '1.2rem', fontFamily: 'var(--font-data)', letterSpacing: '2px', marginBottom: '24px' }}>{activeTicketData.ticket_id}</div>
+          
+          <svg width="120" height="120" viewBox="0 0 100 100" style={{ background: 'white', padding: '10px', borderRadius: '8px', marginBottom: '24px' }}>
+            {/* Simple generic QR SVG pattern */}
+            <path d="M0 0h30v30H0zM10 10h10v10H10zM70 0h30v30H70zM80 10h10v10H80zM0 70h30v30H0zM10 80h10v10H10zM40 0h20v20H40zM50 30h20v20H50zM20 50h20v20H20zM60 60h20v20H60zM40 80h20v20H40zM80 80h20v20H80z" fill="black" />
+          </svg>
+
+          <button onClick={() => setActiveTicketData(null)} style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'white', padding: '10px 24px', borderRadius: '20px', cursor: 'pointer' }}>Close</button>
+        </div>
+      )}
     </div>
   );
 }

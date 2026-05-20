@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import tt from '@tomtom-international/web-sdk-maps';
-import '@tomtom-international/web-sdk-maps/dist/maps.css';
+import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Tooltip, Polygon } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import BusDetailPanel from '../components/BusDetailPanel';
-import { supabase, API_BASE } from '../lib/supabase';
+import ETABadge from '../components/ETABadge';
+import { API_BASE } from '../lib/supabase';
+import { useWatchedStop } from '../context/WatchedStopContext';
+import { useStopArrivalAlert } from '../hooks/useStopArrivalAlert';
+import { useDeviationAlert } from '../hooks/useDeviationAlert';
+import { AlertTriangle } from 'lucide-react';
 
-const CHENNAI_CENTER = [80.2707, 13.0827]; // TomTom uses [lng, lat]
+const CHENNAI_CENTER = [13.0827, 80.2707];
 const ROUTES_TO_FETCH = ['19', '102X', '515'];
 const ROUTE_COLORS = { '19': '#3B82F6', '102X': '#22C55E', '515': '#F97316' };
 
@@ -16,226 +22,146 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-export default function MapView({ language }) {
-  const mapContainer = useRef(null);
-  const mapRef = useRef(null);
-  const markersRef = useRef({});
-  const ghostCirclesRef = useRef({});
-  const userMarkerRef = useRef(null);
-  const userCircleRef = useRef(null);
+// ─── Custom Icons ────────────────────────────────────────────────────────
+const createBusIcon = (bus, isHighlighted, isDeviated) => {
+  const isGhost = bus.is_ghost;
+  const crowdColor = bus.crowding === 'high' ? 'var(--color-danger)' : bus.crowding === 'medium' ? 'var(--color-warning)' : 'var(--color-success)';
+  
+  const borderColor = isGhost ? 'var(--color-ghost-pulse)' : 'var(--color-accent)';
+  const pulseClass = isGhost ? 'ghost-pulse' : '';
+  const highlightShadow = isHighlighted ? 'box-shadow: 0 0 20px #FBBF24;' : '';
+  const deviationBadge = isDeviated
+    ? `<span style="position:absolute;top:-6px;right:-6px;background:var(--color-ghost-pulse,#FF6B35);color:#fff;border-radius:3px;font-size:9px;font-weight:900;padding:1px 4px;line-height:1.2;font-family:monospace;">!</span>`
+    : '';
 
+  const html = `
+    <div class="custom-bus-marker ${pulseClass}" style="
+      position: relative;
+      background-color: var(--color-bg-elevated);
+      border: 1.5px solid ${borderColor};
+      border-left: 6px solid ${crowdColor};
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--color-text-primary);
+      font-family: var(--font-data);
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      ${highlightShadow}
+    ">
+      ${bus.route}${isGhost ? ' ?' : ''}
+      ${deviationBadge}
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: '',
+    iconSize: [60, 30],
+    iconAnchor: [30, 15],
+  });
+};
+
+export default function MapView({ language }) {
+  const mapRef = useRef(null);
+  
   const [buses, setBuses] = useState([]);
   const [stops, setStops] = useState({});
-  const [alerts, setAlerts] = useState([]);
+  const [geometries, setGeometries] = useState({});
   const [selectedBus, setSelectedBus] = useState(null);
   
-  const [userLocation, setUserLocation] = useState(null);
+  const [userLocation, setUserLocation] = useState({ lat: 13.0400, lng: 80.2330, accuracy: 50 });
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [nearbyPanelExpanded, setNearbyPanelExpanded] = useState(false);
-  const [apiError, setApiError] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [geometries, setGeometries] = useState({});
+
+  const { watchedStop, setWatchedStop } = useWatchedStop();
+  const { alert, setAlert } = useStopArrivalAlert(buses);
+  const [selectedStopForWatch, setSelectedStopForWatch] = useState(null);
+
+  // ── Deviation Alerts ──
+  const { deviationAlert, dismissAlert, deviatedBusIds } = useDeviationAlert();
+
+  // ── H3 Demand Layer ────────────────────────────────────────────────────
+  const [demandHexes, setDemandHexes] = useState([]);
+  const [showDemandLayer, setShowDemandLayer] = useState(true);
+
+  useEffect(() => {
+    const fetchDemand = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/h3-demand`);
+        if (res.ok) {
+          const data = await res.json();
+          setDemandHexes(data.hexes || []);
+        }
+      } catch (e) { /* ignore */ }
+    };
+    fetchDemand();
+    const interval = setInterval(fetchDemand, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const HEX_STYLES = {
+    low:    { fillColor: 'rgba(0, 212, 255, 0.10)',  color: 'transparent', weight: 0, fillOpacity: 1 },
+    medium: { fillColor: 'rgba(255, 184, 0, 0.20)',  color: '#FFB800',     weight: 1, fillOpacity: 1, opacity: 0.3 },
+    high:   { fillColor: 'rgba(255, 69,  96, 0.30)',  color: '#FF4560',     weight: 1, fillOpacity: 1, opacity: 0.5 },
+  };
 
   const POPULAR_STOPS = [
     'T Nagar Bus Terminus', 'Thiruvanmiyur Terminus', 'Kelambakkam', 
     'Siruseri', 'Broadway', 'Mamallapuram'
   ];
 
-  // Initialize TomTom Map
-  useEffect(() => {
-    if (mapRef.current) return;
-
-    const apiKey = import.meta.env.VITE_TOMTOM_API_KEY;
-    if (!apiKey) {
-      setApiError(true);
-      return;
-    }
-
-    try {
-      mapRef.current = tt.map({
-        key: apiKey,
-        container: mapContainer.current,
-        center: CHENNAI_CENTER,
-        zoom: 12,
-        theme: {
-          style: 'dark',
-          layer: 'basic'
-        }
-      });
-      
-      mapRef.current.addControl(new tt.NavigationControl(), 'bottom-right');
-      
-      // Wait for map load to set load state
-      mapRef.current.on('load', () => {
-        setMapLoaded(true);
-      });
-    } catch (e) {
-      console.error("TomTom map initialization failed:", e);
-      setApiError(true);
-    }
-    
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
-
-  // Fetch routes, stops, and road geometry
+  // Fetch stops (per-route) and road-snapped polylines (single batch call)
   useEffect(() => {
     const fetchStopsAndGeometry = async () => {
       const allStops = {};
       const allGeometries = {};
-      
-      for (const route of ROUTES_TO_FETCH) {
-        try {
-          // Fetch stops sequence
-          const stopsRes = await fetch(`${API_BASE}/api/stops?route=${route}`);
-          const stopsData = await stopsRes.json();
-          allStops[route] = stopsData.stops || [];
 
-          // Fetch road geometry
-          const geomRes = await fetch(`${API_BASE}/api/routes/${route}/geometry`);
-          if (geomRes.ok) {
-            const geomData = await geomRes.json();
-            allGeometries[route] = geomData.geometry || [];
+      // ── 1. Fetch stop lists for each route (for CircleMarkers) ───────────
+      await Promise.all(
+        ROUTES_TO_FETCH.map(async (route) => {
+          try {
+            const res = await fetch(`${API_BASE}/api/stops?route=${route}`);
+            const data = await res.json();
+            allStops[route] = data.stops || [];
+          } catch (e) {
+            console.warn(`Failed to fetch stops for route ${route}:`, e);
+            allStops[route] = [];
           }
-        } catch (e) {
-          console.error(`Failed to fetch data for route ${route}:`, e);
+        })
+      );
+
+      // ── 2. Fetch road-snapped polylines (single endpoint, cached 24 h) ──
+      try {
+        const polyRes = await fetch(`${API_BASE}/api/polylines`);
+        if (polyRes.ok) {
+          const polyData = await polyRes.json();
+          // Response: { routes: { "19": [[lat,lng],...], ... } }
+          for (const route of ROUTES_TO_FETCH) {
+            if (polyData.routes?.[route]) {
+              // Already [lat, lng] arrays — store directly
+              allGeometries[route] = polyData.routes[route];
+            }
+          }
+        } else {
+          console.warn('Polylines endpoint returned', polyRes.status, '— falling back to stop-to-stop lines');
         }
+      } catch (e) {
+        console.warn('Failed to fetch road polylines, using stop-to-stop lines:', e);
       }
+
       setStops(allStops);
       setGeometries(allGeometries);
     };
     fetchStopsAndGeometry();
   }, []);
 
-  const drawPolylines = (allStops, allGeometries) => {
-    Object.entries(allStops).forEach(([route, routeStops]) => {
-      if (!routeStops.length) return;
-      
-      // Use road-following geometry if available; fallback to straight line stop-to-stop coordinates
-      const coordinates = (allGeometries[route] && allGeometries[route].length > 0)
-        ? allGeometries[route]
-        : routeStops.map(s => [s.lng, s.lat]);
-        
-      const sourceId = `route-${route}`;
-      
-      if (mapRef.current.getSource(sourceId)) {
-        mapRef.current.getSource(sourceId).setData({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates }
-        });
-      } else {
-        mapRef.current.addLayer({
-          id: sourceId,
-          type: 'line',
-          source: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates }
-            }
-          },
-          paint: {
-            'line-color': ROUTE_COLORS[route] || '#3B82F6',
-            'line-width': 4,
-            'line-opacity': 0.6
-          }
-        });
-      }
-    });
-  };
-
-  // Draw route polylines reactively
-  useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return;
-    drawPolylines(stops, geometries);
-  }, [mapLoaded, stops, geometries]);
-
-  // User location tracking (Fixed for Demo)
-  useEffect(() => {
-    // Hardcode user location to T Nagar for demo stability
-    const lngLat = [80.2330, 13.0400]; // [lng, lat]
-    setUserLocation({ lat: 13.0400, lng: 80.2330, accuracy: 50 });
-    
-    if (mapRef.current) {
-      if (!userMarkerRef.current) {
-        const el = document.createElement('div');
-        el.className = 'user-marker';
-        el.style.width = '16px';
-        el.style.height = '16px';
-        el.style.backgroundColor = 'var(--accent)';
-        el.style.borderRadius = '50%';
-        el.style.border = '3px solid white';
-        el.style.boxShadow = '0 0 15px var(--accent)';
-        
-        userMarkerRef.current = new tt.Marker({ element: el })
-          .setLngLat(lngLat)
-          .addTo(mapRef.current);
-          
-        // Do not auto-fly on start to prevent zooming out, just let the map be centered on CHENNAI_CENTER
-      } else {
-        userMarkerRef.current.setLngLat(lngLat);
-      }
-    }
-  }, []);
-
-  // Update buses
-  useEffect(() => {
-    if (!mapRef.current) return;
-    
-    // Create / Update markers
-    buses.forEach(bus => {
-      const lngLat = [bus.lng, bus.lat];
-      const isGhost = bus.is_ghost;
-      const crowdColor = bus.crowding === 'high' ? '#EF4444' : bus.crowding === 'medium' ? '#F59E0B' : '#22C55E';
-      const isHighlighted = selectedDestination && stops[bus.route]?.some(s => s.name.toLowerCase().includes(selectedDestination.toLowerCase()));
-      
-      let marker = markersRef.current[bus.id];
-      if (!marker) {
-        const el = document.createElement('div');
-        el.className = 'bus-marker';
-        
-        el.onclick = () => {
-          setSelectedBus(bus);
-          mapRef.current.flyTo({ center: [bus.lng, bus.lat], zoom: 15 });
-        };
-        
-        marker = new tt.Marker({ element: el, anchor: 'bottom' })
-          .setLngLat(lngLat)
-          .addTo(mapRef.current);
-        markersRef.current[bus.id] = marker;
-      } else {
-        marker.setLngLat(lngLat);
-      }
-      
-      // Update styling
-      const el = marker.getElement();
-      el.style.backgroundColor = isGhost ? '#F97316' : '#1E3A8A';
-      el.style.border = `2px solid ${isGhost ? '#FED7AA' : (isHighlighted ? '#FBBF24' : '#3B82F6')}`;
-      el.style.boxShadow = isHighlighted ? '0 0 20px #FBBF24' : '0 4px 12px rgba(0,0,0,0.4)';
-      el.innerHTML = `
-        🚌 ${bus.route}${isGhost ? ' ?' : ''}
-        <div style="position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; background: ${crowdColor}; border-radius: 50%; border: 2px solid white;"></div>
-      `;
-      if (isGhost) el.classList.add('ghost-pulse');
-      else el.classList.remove('ghost-pulse');
-    });
-    
-    // Remove stale markers
-    Object.keys(markersRef.current).forEach(id => {
-      if (!buses.find(b => b.id === id)) {
-        markersRef.current[id].remove();
-        delete markersRef.current[id];
-      }
-    });
-  }, [buses, selectedDestination, stops]);
-
-  // Fetch real data (same as before)
+  // Fetch buses
   useEffect(() => {
     const fetchBuses = async () => {
       try {
@@ -251,22 +177,221 @@ export default function MapView({ language }) {
   }, []);
 
   const nearbyBuses = buses
-    .filter(b => userLocation && haversineDistance(userLocation.lat, userLocation.lng, b.lat, b.lng) < 5000)
+    .filter(b => haversineDistance(userLocation.lat, userLocation.lng, b.lat, b.lng) < 5000)
     .sort((a, b) => haversineDistance(userLocation.lat, userLocation.lng, a.lat, a.lng) - 
                      haversineDistance(userLocation.lat, userLocation.lng, b.lat, b.lng));
 
-  if (apiError) {
-    return (
-      <div style={{ padding: '40px', color: 'white', textAlign: 'center' }}>
-        <h2>TomTom API Key Required</h2>
-        <p>Please add VITE_TOMTOM_API_KEY to your .env file to use the map.</p>
-      </div>
-    );
-  }
-
   return (
     <div style={{ height: '100%', position: 'relative' }}>
-      <div ref={mapContainer} style={{ height: '100%', width: '100%' }} />
+      <MapContainer 
+        center={CHENNAI_CENTER} 
+        zoom={12} 
+        zoomControl={false}
+        ref={mapRef}
+        style={{ height: '100%', width: '100%', background: 'var(--color-bg-base)' }}
+      >
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution="&copy; <a href='https://openstreetmap.org'>OpenStreetMap</a> &copy; <a href='https://carto.com/'>CARTO</a>"
+        />
+
+        {/* Polylines — road-snapped from /api/polylines, fallback to stop-to-stop */}
+        {ROUTES_TO_FETCH.map(route => {
+          let coords = [];
+          if (geometries[route]?.length > 0) {
+            // /api/polylines returns [[lat, lng], ...] directly — no conversion needed
+            coords = geometries[route];
+          } else if (stops[route]?.length > 0) {
+            coords = stops[route].map(s => [s.lat, s.lng]);
+          }
+          if (!coords.length) return null;
+          return (
+            <Polyline
+              key={route}
+              positions={coords}
+              pathOptions={{ color: ROUTE_COLORS[route] || '#3B82F6', weight: 4, opacity: 0.7 }}
+            />
+          );
+        })}
+
+        {/* Stops */}
+        {Object.entries(stops).map(([route, routeStops]) => 
+          routeStops.map((stop, i) => (
+            <CircleMarker
+              key={`${route}-${stop.id}-${i}`}
+              center={[stop.lat, stop.lng]}
+              radius={4}
+              pathOptions={{
+                fillColor: 'var(--color-accent)',
+                fillOpacity: 0.7,
+                color: 'transparent'
+              }}
+              eventHandlers={{
+                click: () => {
+                  setSelectedStopForWatch({
+                    routeId: route,
+                    stopId: stop.id,
+                    stopName: stop.name,
+                    stopCoords: [stop.lat, stop.lng]
+                  });
+                }
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 600 }}>{stop.name}</div>
+              </Tooltip>
+            </CircleMarker>
+          ))
+        )}
+
+        {/* Buses */}
+        {buses.map(bus => {
+          const isHighlighted = selectedDestination && stops[bus.route]?.some(s => s.name.toLowerCase().includes(selectedDestination.toLowerCase()));
+          return (
+            <Marker
+              key={bus.id}
+              position={[bus.lat, bus.lng]}
+              icon={createBusIcon(bus, isHighlighted, deviatedBusIds.has(bus.id))}
+              eventHandlers={{
+                click: () => {
+                  setSelectedBus(bus);
+                  if (mapRef.current) {
+                    mapRef.current.flyTo([bus.lat, bus.lng], 15);
+                  }
+                }
+              }}
+            />
+          );
+        })}
+
+        {/* H3 Demand Hexagons */}
+        {showDemandLayer && demandHexes.map(hex => (
+          <Polygon
+            key={hex.hex_id}
+            positions={hex.boundary.map(pt => [pt[0], pt[1]])}
+            pathOptions={HEX_STYLES[hex.level] || HEX_STYLES.low}
+            eventHandlers={{
+              mouseover: (e) => e.target.openTooltip(),
+              mouseout:  (e) => e.target.closeTooltip(),
+            }}
+          >
+            <Tooltip sticky opacity={0.97}>
+              <div style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: '0.78rem',
+                color: '#ffffff',
+                background: 'var(--color-bg-elevated)',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: `1px solid ${
+                  hex.level === 'high' ? '#FF4560' : hex.level === 'medium' ? '#FFB800' : 'rgba(0,212,255,0.4)'
+                }`,
+                whiteSpace: 'nowrap',
+              }}>
+                <span style={{ fontWeight: 700 }}>Zone demand:</span> {hex.count} passengers · past 10 min
+              </div>
+            </Tooltip>
+          </Polygon>
+        ))}
+
+        {/* User Location */}
+        <CircleMarker
+          center={[userLocation.lat, userLocation.lng]}
+          radius={8}
+          pathOptions={{
+            fillColor: 'var(--color-accent)',
+            fillOpacity: 1,
+            color: '#fff',
+            weight: 3
+          }}
+        />
+      </MapContainer>
+
+      {/* ── H3 Demand Toggle Button ── */}
+      <button
+        id="demand-heatmap-toggle"
+        onClick={() => setShowDemandLayer(v => !v)}
+        title={showDemandLayer ? 'Hide Demand Heatmap' : 'Show Demand Heatmap'}
+        style={{
+          position: 'absolute', top: '24px', right: '24px', zIndex: 1001,
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '10px 16px',
+          background: showDemandLayer ? 'var(--color-accent)' : 'var(--color-bg-elevated)',
+          border: `1px solid ${showDemandLayer ? 'var(--color-accent)' : 'var(--color-border)'}`,
+          borderRadius: '12px',
+          color: showDemandLayer ? '#080C14' : 'var(--color-text-secondary)',
+          fontFamily: 'var(--font-ui)',
+          fontWeight: 700,
+          fontSize: '0.82rem',
+          cursor: 'pointer',
+          boxShadow: showDemandLayer ? 'var(--shadow-accent)' : 'var(--shadow-panel)',
+          transition: 'all 0.25s ease',
+          letterSpacing: '0.03em',
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2" />
+        </svg>
+        Demand Heatmap {showDemandLayer ? 'ON' : 'OFF'}
+      </button>
+
+      {/* ── H3 Demand Legend Panel ── */}
+      <div style={{
+        position: 'absolute', top: '76px', right: '24px', zIndex: 1001,
+        background: 'var(--color-bg-elevated)',
+        border: '1px solid var(--color-border)',
+        borderRadius: '14px',
+        padding: '14px 16px',
+        minWidth: '210px',
+        boxShadow: 'var(--shadow-panel)',
+        transition: 'opacity 0.3s ease',
+        opacity: showDemandLayer ? 1 : 0.35,
+        pointerEvents: showDemandLayer ? 'auto' : 'none',
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '0.68rem',
+          fontWeight: 800,
+          color: 'var(--color-accent)',
+          letterSpacing: '0.12em',
+          marginBottom: '10px',
+        }}>H3 DEMAND LAYER (res-8, ~460m)</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '10px' }}>
+          {[
+            { level: 'High',   fill: 'rgba(255, 69, 96, 0.35)',   stroke: '#FF4560' },
+            { level: 'Medium', fill: 'rgba(255, 184, 0, 0.30)',   stroke: '#FFB800' },
+            { level: 'Low',    fill: 'rgba(0, 212, 255, 0.18)',   stroke: 'rgba(0,212,255,0.5)' },
+          ].map(({ level, fill, stroke }) => (
+            <div key={level} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <svg width="18" height="16" viewBox="0 0 18 16">
+                <polygon
+                  points="9,1 17,5 17,11 9,15 1,11 1,5"
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth="1.5"
+                />
+              </svg>
+              <span style={{
+                fontFamily: 'var(--font-ui)',
+                fontSize: '0.8rem',
+                color: 'var(--color-text-primary)',
+                fontWeight: 600,
+              }}>{level}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          fontFamily: 'var(--font-ui)',
+          fontSize: '0.72rem',
+          color: 'var(--color-text-secondary)',
+          borderTop: '1px solid var(--color-border)',
+          paddingTop: '8px',
+          lineHeight: 1.4,
+        }}>Passenger ping density · 10-min window</div>
+      </div>
 
       {/* ── Search Bar ── */}
       <div style={{
@@ -281,18 +406,18 @@ export default function MapView({ language }) {
           placeholder={language === 'en' ? "Where do you want to go?" : "எங்கே செல்ல வேண்டும்?"}
           style={{
             width: '100%', padding: '16px 24px', borderRadius: '16px',
-            border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(15, 23, 42, 0.85)', 
-            color: 'var(--text-primary)', fontSize: '1rem', outline: 'none',
-            backdropFilter: 'blur(16px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            fontFamily: 'Inter, sans-serif', transition: 'all 0.3s ease'
+            border: '1px solid var(--color-border)', background: 'var(--color-bg-elevated)', 
+            color: 'var(--color-text-primary)', fontSize: '1rem', outline: 'none',
+            boxShadow: 'var(--shadow-panel)',
+            fontFamily: 'var(--font-ui)', transition: 'all 0.3s ease'
           }}
         />
         {showDropdown && (
           <div style={{
             position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '8px',
-            background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '16px', overflow: 'hidden', backdropFilter: 'blur(16px)',
-            boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
+            background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
+            borderRadius: '16px', overflow: 'hidden',
+            boxShadow: 'var(--shadow-panel)'
           }}>
             {POPULAR_STOPS.map(stop => (
               <div 
@@ -300,9 +425,10 @@ export default function MapView({ language }) {
                 onClick={() => { setSearchQuery(stop); setSelectedDestination(stop); setShowDropdown(false); }}
                 style={{
                   padding: '16px 24px', cursor: 'pointer', fontSize: '0.95rem',
-                  borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.2s'
+                  borderBottom: '1px solid var(--color-border)', transition: 'background 0.2s',
+                  color: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)'
                 }}
-                onMouseOver={(e) => e.target.style.background = 'rgba(255,255,255,0.05)'}
+                onMouseOver={(e) => e.target.style.background = 'var(--color-bg-panel)'}
                 onMouseOut={(e) => e.target.style.background = 'transparent'}
               >
                 📍 {stop}
@@ -315,18 +441,18 @@ export default function MapView({ language }) {
       {/* ── Nearby Buses Panel ── */}
       <div style={{
         position: 'absolute', bottom: '0', left: '0', right: '0', zIndex: 999,
-        background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(24px)',
-        borderTop: '1px solid rgba(255,255,255,0.1)',
+        background: 'var(--color-bg-elevated)',
+        borderTop: '1px solid var(--color-border)',
         borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
         padding: '24px', transition: 'height 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         height: nearbyPanelExpanded ? '320px' : '160px',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 32px rgba(0,0,0,0.5)'
+        display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-panel)'
       }}>
         <div 
           onClick={() => setNearbyPanelExpanded(!nearbyPanelExpanded)}
-          style={{ width: '48px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', margin: '0 auto 16px', cursor: 'pointer' }}
+          style={{ width: '48px', height: '6px', background: 'var(--color-border)', borderRadius: '3px', margin: '0 auto 16px', cursor: 'pointer' }}
         />
-        <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', letterSpacing: '0.5px' }}>
+        <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'var(--color-text-primary)' }}>
           {language === 'en' ? 'Buses near you' : 'அருகிலுள்ள பேருந்துகள்'}
         </h3>
         
@@ -334,42 +460,31 @@ export default function MapView({ language }) {
           {nearbyBuses.length > 0 ? nearbyBuses.map(bus => (
             <div key={bus.id} onClick={() => { 
                 setSelectedBus(bus); 
-                if (mapRef.current) mapRef.current.flyTo({ center: [bus.lng, bus.lat], zoom: 15 }); 
+                if (mapRef.current) mapRef.current.flyTo([bus.lat, bus.lng], 15);
               }} style={{
-              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
+              background: 'var(--color-bg-panel)', border: '1px solid var(--color-border)',
               padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between',
               alignItems: 'center', cursor: 'pointer', transition: 'all 0.2s',
             }}>
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                <div style={{ background: 'var(--accent)', color: 'white', padding: '6px 12px', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
+                <div style={{ background: 'var(--color-accent)', color: '#080C14', padding: '6px 12px', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
                   {bus.route}
                 </div>
                 <div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700 }}>{bus.id} {bus.is_ghost ? '👻' : ''}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Crowding: <span style={{ color: bus.crowding === 'high' ? 'var(--danger)' : 'var(--success)' }}>{bus.crowding}</span>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>{bus.id} {bus.is_ghost ? '👻' : ''}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                    Crowding: <span style={{ color: bus.crowding === 'high' ? 'var(--color-danger)' : 'var(--color-success)' }}>{bus.crowding}</span>
                   </div>
                 </div>
               </div>
-              <div style={{ fontSize: '0.9rem', color: 'var(--accent-green)', fontWeight: 700 }}>
-                ~{(() => {
-                  const distKm = haversineDistance(userLocation.lat, userLocation.lng, bus.lat, bus.lng) / 1000;
-                  const hour = new Date().getHours();
-                  // Chennai time-of-day traffic model (ML-calibrated speeds)
-                  let avgSpeedKmph;
-                  if ((hour >= 8 && hour <= 10) || (hour >= 17 && hour <= 20)) avgSpeedKmph = 14; // Peak
-                  else if (hour >= 12 && hour <= 14) avgSpeedKmph = 25; // Midday
-                  else if (hour >= 22 || hour <= 5) avgSpeedKmph = 45; // Night
-                  else avgSpeedKmph = 32; // Normal
-                  // Road correction factor × 1.35 for Chennai urban grid
-                  const roadDist = distKm * 1.35;
-                  const etaMin = Math.max(1, Math.round((roadDist / avgSpeedKmph) * 60));
-                  return etaMin;
-                })()} min
-              </div>
+              <ETABadge
+                eta_minutes={Math.max(1, Math.round((haversineDistance(userLocation.lat, userLocation.lng, bus.lat, bus.lng) / 1000 * 1.35 / 25) * 60))}
+                confidence_pct={bus.is_ghost ? 38 : bus.reliability_score > 0.75 ? 82 : 62}
+                confidence_label={bus.is_ghost ? 'LOW' : bus.reliability_score > 0.75 ? 'HIGH' : 'MODERATE'}
+              />
             </div>
           )) : (
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
               No buses within 5km. Showing all routes.
             </p>
           )}
@@ -381,6 +496,167 @@ export default function MapView({ language }) {
         language={language}
         onClose={() => setSelectedBus(null)} 
       />
+
+      {/* ── Watch Stop Prompt (Bottom Sheet) ── */}
+      {selectedStopForWatch && (
+        <div style={{
+          position: 'absolute', bottom: '0', left: '0', right: '0', zIndex: 1000,
+          background: 'var(--color-bg-elevated)',
+          borderTop: '1px solid var(--color-border)',
+          borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
+          padding: '24px',
+          boxShadow: 'var(--shadow-panel)',
+          display: 'flex', flexDirection: 'column', gap: '16px'
+        }}>
+          <div>
+            <h4 style={{ color: 'var(--color-text-primary)', fontSize: '1.2rem', fontWeight: 700, marginBottom: '4px' }}>
+              Watch this stop?
+            </h4>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
+              Get notified when Route {selectedStopForWatch.routeId} arrives at {selectedStopForWatch.stopName}.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button 
+              onClick={() => setSelectedStopForWatch(null)}
+              style={{
+                flex: 1, padding: '12px', borderRadius: '12px',
+                background: 'var(--color-bg-panel)', border: '1px solid var(--color-border)',
+                color: 'var(--color-text-primary)', fontWeight: 600, cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={() => {
+                setWatchedStop(selectedStopForWatch);
+                setSelectedStopForWatch(null);
+                setAlert(null); // Clear previous alerts
+              }}
+              style={{
+                flex: 1, padding: '12px', borderRadius: '12px',
+                background: 'var(--color-accent)', border: 'none',
+                color: '#080C14', fontWeight: 700, cursor: 'pointer',
+                boxShadow: 'var(--shadow-accent)'
+              }}
+            >
+              Watch Stop
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Arrival Alert Notification Bar ── */}
+      {alert && (
+        <div style={{
+          position: 'absolute', bottom: '80px', left: '24px', right: '24px', zIndex: 2000,
+          background: 'var(--color-bg-elevated)',
+          borderTop: `2px solid ${alert.status === 'arrived' ? 'var(--color-success)' : 'var(--color-accent)'}`,
+          borderRadius: '12px',
+          padding: '16px',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.8)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        }}>
+          <div style={{
+            fontFamily: 'var(--font-data)',
+            color: alert.status === 'arrived' ? 'var(--color-success)' : 'var(--color-text-primary)',
+            fontWeight: 700,
+            fontSize: '0.95rem'
+          }}>
+            {alert.message}
+          </div>
+          <button 
+            onClick={() => setAlert(null)}
+            style={{
+              background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+              cursor: 'pointer', fontSize: '1.2rem', padding: '0 8px'
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {/* ── Route Deviation Alert Banner ── */}
+      {deviationAlert && (
+        <div style={{
+          position: 'absolute', bottom: alert ? '148px' : '80px',
+          left: '24px', right: '24px', zIndex: 2100,
+          background: 'rgba(255, 107, 53, 0.15)',
+          borderLeft: '3px solid var(--color-ghost-pulse, #FF6B35)',
+          borderRadius: '12px',
+          padding: '14px 16px',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+          display: 'flex', gap: '12px', alignItems: 'flex-start',
+          backdropFilter: 'blur(8px)',
+          animation: 'slideDown 0.3s ease-out',
+        }}>
+          {/* Icon */}
+          <AlertTriangle
+            size={20}
+            style={{ color: 'var(--color-ghost-pulse, #FF6B35)', flexShrink: 0, marginTop: '2px' }}
+          />
+
+          {/* Content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-data)',
+              fontWeight: 700,
+              fontSize: '0.8rem',
+              color: 'var(--color-ghost-pulse, #FF6B35)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: '4px',
+            }}>
+              Route Deviation Detected
+            </div>
+            <div style={{
+              fontSize: '0.82rem',
+              color: 'var(--color-text-primary)',
+              lineHeight: 1.5,
+              marginBottom: deviationAlert.next_available_stop ? '10px' : 0,
+            }}>
+              {deviationAlert.message}
+            </div>
+
+            {/* CTA: next available stop */}
+            {deviationAlert.next_available_stop && (
+              <button
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--color-accent)',
+                  color: 'var(--color-accent)',
+                  borderRadius: '8px',
+                  padding: '6px 14px',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-data)',
+                  letterSpacing: '0.04em',
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={(e) => { e.target.style.background = 'rgba(0,212,255,0.08)'; }}
+                onMouseLeave={(e) => { e.target.style.background = 'transparent'; }}
+              >
+                Move to {deviationAlert.next_available_stop} →
+              </button>
+            )}
+          </div>
+
+          {/* Dismiss */}
+          <button
+            onClick={dismissAlert}
+            style={{
+              background: 'transparent', border: 'none',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer', fontSize: '1.2rem', padding: '0 4px',
+              flexShrink: 0, lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }

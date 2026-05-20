@@ -21,6 +21,10 @@ fi
 # Install Python deps
 echo "📦 Installing Python dependencies..."
 python3 -m pip install -r "$PROJECT_DIR/requirements.txt" -q
+if python3 -c "import playwright" &>/dev/null; then
+  echo "🎭 Installing Playwright Chromium browser..."
+  python3 -m playwright install chromium || echo "⚠️ Playwright browser install skipped"
+fi
 
 # Start backend
 echo "🖥  Starting backend server..."

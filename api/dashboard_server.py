@@ -182,6 +182,9 @@ from api.routes.routes import router as routes_router
 from api.routes.alerts import router as alerts_router
 from api.routes.ai import router as ai_router
 from api.routes.eta import router as eta_router
+from api.routes.polylines import router as polylines_router
+from api.routes.h3_demand import router as h3_demand_router
+from app.routers.passengers import router as passengers_router
 from api.dashboard_routes import router as dashboard_router
 
 app.include_router(ingest_router)
@@ -192,6 +195,9 @@ app.include_router(routes_router)
 app.include_router(alerts_router)
 app.include_router(ai_router)
 app.include_router(eta_router)
+app.include_router(polylines_router)
+app.include_router(h3_demand_router)
+app.include_router(passengers_router)
 app.include_router(dashboard_router)
 
 # ── Serve frontend (Vite build output) ──
@@ -215,7 +221,15 @@ if os.path.exists(_FRONTEND_DIST):
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
-    """Serve the React SPA. Falls back to index.html for client-side routing."""
+    """Serve the React SPA. Falls back to index.html for client-side routing.
+    API paths (/api/*) are never handled here — they are routed by the
+    registered APIRouter instances above.
+    """
+    # Never shadow API routes — let FastAPI's 404 handler take over
+    if full_path.startswith("api/"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"API route not found: /{full_path}")
+
     # Try frontend dist first
     if os.path.exists(_FRONTEND_DIST):
         file_path = os.path.join(_FRONTEND_DIST, full_path)

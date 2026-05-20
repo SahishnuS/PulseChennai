@@ -4,13 +4,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        teal: {
-          300: '#5EEAD4',
-          400: '#2DD4BF',
+        brand: {
+          accent: 'var(--color-accent)',
+          ghost: 'var(--color-ghost-pulse)',
         },
+        ui: {
+          base: 'var(--color-bg-base)',
+          panel: 'var(--color-bg-panel)',
+          elevated: 'var(--color-bg-elevated)',
+          border: 'var(--color-border)',
+          success: 'var(--color-success)',
+          warning: 'var(--color-warning)',
+          danger: 'var(--color-danger)',
+          text: {
+            primary: 'var(--color-text-primary)',
+            secondary: 'var(--color-text-secondary)',
+            muted: 'var(--color-text-muted)',
+          }
+        }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-ui)'],
+        mono: ['var(--font-data)'],
       },
     },
   },

@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LayoutDashboard, Ticket, Route, Headphones, Settings, LogOut, MessageCircle } from 'lucide-react';
 import MapView from './views/MapView';
 import AssistantView from './views/AssistantView';
 import JourneyView from './views/JourneyView';
 import GhostBusBanner from './components/GhostBusBanner';
+import SettingsPage from './pages/SettingsPage';
+import TicketsPage from './pages/TicketsPage';
 import './index.css';
 
 const TABS = [
-  { id: 'map', label: '🗺 Map', labelTa: '🗺 வரைபடம்' },
-  { id: 'assistant', label: '🤖 Assistant', labelTa: '🤖 உதவியாளர்' },
-  { id: 'journey', label: '🚌 Routes', labelTa: '🚌 வழிகள்' },
+  { id: 'map', label: 'Map', labelTa: 'வரைபடம்' },
+  { id: 'assistant', label: 'Assistant', labelTa: 'உதவியாளர்' },
+  { id: 'journey', label: 'Routes', labelTa: 'வழிகள்' },
 ];
 
 export default function App() {
@@ -67,11 +70,11 @@ export default function App() {
       {/* ── Sidebar (Desktop) ── */}
       <aside className="sidebar">
         <div style={{ marginBottom: '40px', paddingLeft: '8px' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent-green)', letterSpacing: '-0.5px' }}>
-            Transit Pro
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-accent)', fontFamily: 'var(--font-data)', letterSpacing: '-0.5px' }}>
+            PULSE
           </h1>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '2px' }}>
-            {language === 'en' ? 'Urban Commuter' : 'நகர பயணி'}
+          <p style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontWeight: 500, marginTop: '2px' }}>
+            Chennai Transit Engine
           </p>
         </div>
 
@@ -80,15 +83,15 @@ export default function App() {
             className={`sidebar-nav-item ${activeTab === 'map' ? 'active' : ''}`}
             onClick={() => setActiveTab('map')}
           >
-            <span style={{ fontSize: '1.1rem' }}>⊞</span>
+            <LayoutDashboard size={20} />
             {language === 'en' ? 'Dashboard' : 'முகப்பு'}
           </button>
           
           <button 
-            className="sidebar-nav-item"
-            onClick={() => showToast(language === 'en' ? 'Tickets directory coming soon' : 'டிக்கெட்டுகள் விரைவில் வரும்')}
+            className={`sidebar-nav-item ${activeTab === 'tickets' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tickets')}
           >
-            <span style={{ fontSize: '1.1rem' }}>🎫</span>
+            <Ticket size={20} />
             {language === 'en' ? 'My Tickets' : 'டிக்கெட்டுகள்'}
           </button>
 
@@ -96,12 +99,12 @@ export default function App() {
             className={`sidebar-nav-item ${activeTab === 'journey' ? 'active' : ''}`}
             onClick={() => setActiveTab('journey')}
           >
-            <span style={{ fontSize: '1.1rem' }}>🚌</span>
+            <Route size={20} />
             {language === 'en' ? 'Routes' : 'வழிகள்'}
           </button>
 
           <button className="sidebar-nav-item" onClick={() => setActiveTab('assistant')}>
-            <span style={{ fontSize: '1.1rem' }}>🎧</span>
+            <Headphones size={20} />
             {language === 'en' ? 'Support' : 'உதவி'}
           </button>
 
@@ -110,13 +113,16 @@ export default function App() {
           </button>
         </nav>
 
-        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-          <button className="sidebar-nav-item" onClick={() => showToast(language === 'en' ? 'Settings opened' : 'அமைப்புகள்')}>
-            <span style={{ fontSize: '1.1rem' }}>⚙️</span>
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
+          <button 
+            className={`sidebar-nav-item ${activeTab === 'settings' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('settings')}
+          >
+            <Settings size={20} />
             {language === 'en' ? 'Settings' : 'அமைப்புகள்'}
           </button>
           <button className="sidebar-nav-item" onClick={() => showToast(language === 'en' ? 'Logged out safely' : 'வெளியேறியது')}>
-            <span style={{ fontSize: '1.1rem' }}>🚪</span>
+            <LogOut size={20} />
             {language === 'en' ? 'Logout' : 'வெளியேறு'}
           </button>
         </div>
@@ -191,6 +197,20 @@ export default function App() {
                 <JourneyView language={language} />
               </motion.div>
             )}
+            {activeTab === 'settings' && (
+              <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} style={{ height: '100%' }}>
+                <SettingsPage />
+              </motion.div>
+            )}
+            {activeTab === 'tickets' && (
+              <motion.div key="tickets" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} style={{ height: '100%' }}>
+                <TicketsPage onTrackBus={(busId) => {
+                  setActiveTab('map');
+                  // We would normally pass this busId down to MapView to auto-focus it
+                  showToast(`Tracking ${busId}`);
+                }} />
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
 
@@ -201,14 +221,13 @@ export default function App() {
             style={{
               position: 'absolute', bottom: '24px', right: '24px',
               width: '56px', height: '56px', borderRadius: '50%',
-              background: 'var(--accent-green)', border: 'none',
-              boxShadow: '0 4px 12px rgba(52, 211, 153, 0.4)',
+              background: 'var(--color-accent)', color: '#080C14', border: 'none',
+              boxShadow: 'var(--shadow-accent)',
               cursor: 'pointer', zIndex: 1000,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '1.5rem'
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}
           >
-            💬
+            <MessageCircle size={24} />
           </button>
         )}
 

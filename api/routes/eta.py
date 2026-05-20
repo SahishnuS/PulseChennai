@@ -13,6 +13,7 @@ Endpoints:
 """
 
 import os
+import random
 import logging
 from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
@@ -20,6 +21,81 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ETA"])
+
+
+# ── Confidence scoring ────────────────────────────────────────────────────────
+
+def compute_confidence(
+    method_used: str,
+    is_ghost: bool,
+    tomtom_applied: bool,
+    eta_minutes: float,
+) -> dict:
+    """
+    Calculate an integer confidence score [25, 97] for an ETA prediction.
+
+    Rules (applied in order):
+    1. Base = 85
+    2. -20 if single-model fallback (one of XGB/LGB failed)
+    3. -30 if GradientBoosting on-the-fly fallback
+    4. -15 if bus is a ghost (reliability < 0.3)
+    5. +10 if TomTom live correction was applied
+    6. ETA range penalty: 0/<5min, -5/5-15min, -10/15-30min, -20/>30min
+    7. Gaussian noise ±3
+    8. Clamp to [25, 97]
+    """
+    score = 85
+
+    method_lower = (method_used or "").lower()
+
+    # Rule 2: single-model fallback
+    if "single" in method_lower or "one model" in method_lower:
+        score -= 20
+    # Rule 3: on-the-fly GradientBoosting fallback
+    if "gradientboosting" in method_lower or "fallback" in method_lower:
+        score -= 30
+
+    # Rule 4: ghost bus
+    if is_ghost:
+        score -= 15
+
+    # Rule 5: TomTom correction bonus
+    if tomtom_applied:
+        score += 10
+
+    # Rule 6: ETA range penalty
+    if eta_minutes >= 30:
+        score -= 20
+    elif eta_minutes >= 15:
+        score -= 10
+    elif eta_minutes >= 5:
+        score -= 5
+    # < 5 min: no penalty
+
+    # Rule 7: Gaussian noise
+    score += random.gauss(0, 3)
+
+    # Rule 8: clamp
+    score = int(round(max(25, min(97, score))))
+
+    label = "HIGH" if score >= 75 else ("MODERATE" if score >= 50 else "LOW")
+
+    return {"confidence_pct": score, "confidence_label": label}
+
+
+def _model_used_label(method_str: str, tomtom_applied: bool) -> str:
+    """Map method_used string to a clean model_used enum value."""
+    m = (method_str or "").lower()
+    if "ensemble" in m or "xgb" in m or "lgb" in m:
+        return "ensemble"
+    if "single" in m or "one model" in m:
+        return "single"
+    if "fallback" in m or "gradientboosting" in m or "analytical" in m or "historical" in m:
+        return "fallback"
+    if "tomtom" in m and not tomtom_applied:
+        return "analytical"
+    return "analytical"
+
 
 # Chennai route termini for per-bus ETA calculation
 _ROUTE_TERMINI = {
@@ -100,10 +176,25 @@ async def calculate_eta_endpoint(
             dst=dst.strip(),
             api_key=_get_api_key(),
         )
+        eta_dict   = result.to_dict()
+        eta_min    = eta_dict.get("best_eta_minutes") or 0
+        tomtom_ok  = bool(result.eta_live_seconds)
+        conf       = compute_confidence(
+            method_used    = result.method_used,
+            is_ghost       = False,
+            tomtom_applied = tomtom_ok,
+            eta_minutes    = eta_min,
+        )
         return {
-            "status": "ok",
-            "eta": result.to_dict(),
-            "requested_at": datetime.now().isoformat(),
+            "status":          "ok",
+            "eta":             eta_dict,
+            "eta_minutes":     eta_min,
+            "eta_corrected_minutes": eta_min,
+            "confidence_pct":  conf["confidence_pct"],
+            "confidence_label": conf["confidence_label"],
+            "model_used":      _model_used_label(result.method_used, tomtom_ok),
+            "tomtom_applied":  tomtom_ok,
+            "requested_at":    datetime.now().isoformat(),
         }
     except Exception as e:
         logger.error(f"ETA calculation error: {e}")
@@ -172,6 +263,16 @@ async def get_all_bus_etas():
                 api_key=api_key,
             )
 
+            t_dict     = terminus_result.to_dict()
+            t_min      = t_dict.get("best_eta_minutes") or 0
+            t_tomtom   = bool(terminus_result.eta_live_seconds)
+            t_conf     = compute_confidence(
+                method_used    = terminus_result.method_used,
+                is_ghost       = bool(bus.get("is_ghost", False)),
+                tomtom_applied = t_tomtom,
+                eta_minutes    = t_min,
+            )
+
             results.append({
                 "bus_id":        bus_id,
                 "route_id":      route_id,
@@ -181,7 +282,13 @@ async def get_all_bus_etas():
                 "passenger_count": bus.get("passenger_count", 0),
                 "is_ghost":      bus.get("is_ghost", False),
                 "next_stop":     next_stop_eta,
-                "terminus":      terminus_result.to_dict(),
+                "terminus":      t_dict,
+                "eta_minutes":          t_min,
+                "eta_corrected_minutes": t_min,
+                "confidence_pct":        t_conf["confidence_pct"],
+                "confidence_label":      t_conf["confidence_label"],
+                "model_used":            _model_used_label(terminus_result.method_used, t_tomtom),
+                "tomtom_applied":        t_tomtom,
             })
 
         except Exception as e:
@@ -247,10 +354,24 @@ async def get_bus_eta(
             api_key=api_key,
         )
 
+    tomtom_ok = bool(result.eta_live_seconds)
+    conf = compute_confidence(
+        method_used    = result.method_used,
+        is_ghost       = bool(bus.get("is_ghost", False)),
+        tomtom_applied = tomtom_ok,
+        eta_minutes    = result.best_eta_minutes() or 0,
+    )
+
     return {
         "status":     "ok",
         "bus_id":     bus_id,
         "bus_info":   bus,
         "eta":        result.to_dict(),
-        "computed_at": datetime.now().isoformat(),
+        "eta_minutes":          result.best_eta_minutes(),
+        "eta_corrected_minutes": result.best_eta_minutes(),
+        "confidence_pct":  conf["confidence_pct"],
+        "confidence_label": conf["confidence_label"],
+        "model_used":      _model_used_label(result.method_used, tomtom_ok),
+        "tomtom_applied":  tomtom_ok,
+        "computed_at":     datetime.now().isoformat(),
     }

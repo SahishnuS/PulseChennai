@@ -1,0 +1,22 @@
+:root {
+  --color-bg-base: #080C14;
+  --color-bg-panel: #0D1520;
+  --color-bg-elevated: #131E2E;
+  --color-border: rgba(0, 212, 255, 0.12);
+  --color-accent: #00D4FF;
+  --color-accent-dim: rgba(0, 212, 255, 0.15);
+  --color-accent-glow: rgba(0, 212, 255, 0.35);
+  --color-text-primary: #E8F4FF;
+  --color-text-secondary: #6B8CAE;
+  --color-text-muted: #3A5068;
+  --color-success: #00E5A0;
+  --color-warning: #FFB800;
+  --color-danger: #FF4560;
+  --color-ghost-pulse: #FF6B35;
+  --font-ui: 'IBM Plex Sans', sans-serif;
+  --font-data: 'IBM Plex Mono', monospace;
+  --radius-card: 10px;
+  --radius-chip: 6px;
+  --shadow-panel: 0 0 0 1px var(--color-border), 0 8px 32px rgba(0,0,0,0.5);
+  --shadow-accent: 0 0 20px var(--color-accent-glow);
+}

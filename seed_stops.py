@@ -30,23 +30,23 @@ def clear_database(supabase):
     """Clear old tracking and routing data so new buses have a clean slate."""
     logger.info("Clearing old data from Supabase...")
     tables_to_clear = [
-        "journey_watches", "alerts", "route_segments", "route_polylines", "buses", "stops"
+        "journey_watches", "alerts", "cached_route_segments", "route_polylines", "buses", "stops"
     ]
     for table in tables_to_clear:
         try:
-            # Delete all rows where id is not empty
+            # Delete all rows where id/routing key is not empty
             if table == "buses":
                 supabase.table(table).delete().neq("id", "").execute()
             elif table == "stops":
                 supabase.table(table).delete().neq("id", "").execute()
             elif table == "route_polylines":
                 supabase.table(table).delete().neq("route_id", "").execute()
-            elif table == "route_segments":
+            elif table == "cached_route_segments":
                 supabase.table(table).delete().neq("start_stop_id", "").execute()
             elif table == "alerts":
-                supabase.table(table).delete().neq("id", "").execute()
+                supabase.table(table).delete().neq("id", 0).execute()
             elif table == "journey_watches":
-                supabase.table(table).delete().neq("id", "").execute()
+                supabase.table(table).delete().neq("id", 0).execute()
                 
             logger.info(f"  ✓ Cleared {table}")
         except Exception as e:

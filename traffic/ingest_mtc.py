@@ -79,8 +79,8 @@ def scrape_route_stops(route_id: str) -> List[str]:
                 logger.warning(f"MTC Scraper Timeout/Block for route {route_id}. Switching to verified MTC backup data.")
                 
             browser.close()
-    except Exception as e:
-        logger.error(f"Playwright error during scraping {route_id}: {e}")
+    except (ImportError, Exception) as e:
+        logger.warning(f"Playwright scraping unavailable/failed for route {route_id}: {e}. Using verified MTC backup data.")
         
     if not stops and route_id in OFFICIAL_ROUTES_MOCK:
         stops = OFFICIAL_ROUTES_MOCK[route_id]

@@ -74,38 +74,68 @@ BUSES = [
 ]
 
 
-def interpolate_position(waypoints, progress):
-    """Interpolate GPS position along a waypoint sequence."""
+def haversine_km(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    return 2 * 6371 * math.asin(math.sqrt(a))
+
+
+def polyline_length_km(polyline: list[tuple]) -> float:
+    """Calculate the total length of the waypoint path in km using Haversine sum."""
+    total = 0.0
+    for i in range(len(polyline) - 1):
+        lat1, lng1 = polyline[i]
+        lat2, lng2 = polyline[i+1]
+        total += haversine_km(lat1, lng1, lat2, lng2)
+    return max(total, 0.001)
+
+
+def snap_to_polyline(point: tuple, polyline: list[tuple]) -> tuple:
+    """Find the closest point on the polyline to `point` using minimum Haversine distance."""
+    if not polyline:
+        return point
+    best_dist = float('inf')
+    best_pt = point
+    lat, lng = point
+    for p_lat, p_lng in polyline:
+        d = haversine_km(lat, lng, p_lat, p_lng)
+        if d < best_dist:
+            best_dist = d
+            best_pt = (p_lat, p_lng)
+    return best_pt
+
+
+def interpolate_position(waypoints, progress, total_length_km):
+    """Interpolate GPS position accurately along a polyline by distance."""
     if not waypoints:
         return 13.0, 80.2, 0
+    if len(waypoints) == 1:
+        return waypoints[0][0], waypoints[0][1], 0
 
-    n = len(waypoints) - 1
     progress = max(0.0, min(1.0, progress))
-    segment_float = progress * n
-    segment = min(int(segment_float), n - 1)
-    t = segment_float - segment
-
-    lat = waypoints[segment][0] + t * (waypoints[segment + 1][0] - waypoints[segment][0])
-    lng = waypoints[segment][1] + t * (waypoints[segment + 1][1] - waypoints[segment][1])
-
-    lat += random.gauss(0, 0.00003)
-    lng += random.gauss(0, 0.00003)
-
-    return lat, lng, segment
-
-
-def get_route_length(waypoints):
-    """Calculate the total length of the waypoint path in meters using distance approximation."""
-    total = 0.0
+    target_dist = progress * total_length_km
+    
+    current_dist = 0.0
     for i in range(len(waypoints) - 1):
         lat1, lng1 = waypoints[i]
         lat2, lng2 = waypoints[i+1]
-        # Quick degrees to meters calculation (1 degree lat ~= 111km, 1 degree lng ~= 111km * cos(lat))
-        # Valid for Chennai latitude
-        dy = (lat2 - lat1) * 111132.0
-        dx = (lng2 - lng1) * 111132.0 * math.cos(math.radians(lat1))
-        total += math.sqrt(dx*dx + dy*dy)
-    return max(total, 1000.0)
+        d = haversine_km(lat1, lng1, lat2, lng2)
+        
+        if current_dist + d >= target_dist:
+            t = (target_dist - current_dist) / d if d > 0 else 0
+            lat = lat1 + t * (lat2 - lat1)
+            lng = lng1 + t * (lng2 - lng1)
+            
+            # Add minor GPS jitter
+            lat += random.gauss(0, 0.00003)
+            lng += random.gauss(0, 0.00003)
+            return lat, lng, i
+            
+        current_dist += d
+
+    return waypoints[-1][0], waypoints[-1][1], len(waypoints) - 1
 
 
 def get_supabase():
@@ -129,6 +159,7 @@ async def run_simulation():
     await upstash_redis.init()
 
     # Pre-fetch road-aware geometry paths for each bus route
+    from app.services import deviation_detector as dev_det
     bus_paths = {}
     for bus in BUSES:
         bus_id = bus["id"]
@@ -141,9 +172,9 @@ async def run_simulation():
         bus_paths[bus_id] = {
             "waypoints": waypoints,
             "stop_indices": stop_indices,
-            "length_meters": get_route_length(waypoints)
+            "length_km": polyline_length_km(waypoints)
         }
-        logger.info(f"  Loaded {len(waypoints)} waypoints, path length: {bus_paths[bus_id]['length_meters']:.1f} meters")
+        logger.info(f"  Loaded {len(waypoints)} waypoints, path length: {bus_paths[bus_id]['length_km']:.2f} km")
 
     # Initialize bus states
     bus_state = {}
@@ -179,12 +210,12 @@ async def run_simulation():
             path_info = bus_paths[bus_id]
             waypoints = path_info["waypoints"]
             stop_indices = path_info["stop_indices"]
-            route_length = path_info["length_meters"]
+            route_length_km = path_info["length_km"]
             n = len(waypoints) - 1
 
             # Advance progress along road geometry
-            step_dist = (bus["speed_kmh"] / 3.6) * PING_INTERVAL
-            speed_progress = step_dist / route_length
+            step_dist_km = bus["speed_kmh"] * (PING_INTERVAL / 3600.0)
+            speed_progress = step_dist_km / route_length_km
             state["progress"] += speed_progress * state["direction"]
 
             # Bounce
@@ -197,7 +228,7 @@ async def run_simulation():
                 state["direction"] = 1
                 state["skip_done"] = False
 
-            lat, lng, segment_idx = interpolate_position(waypoints, state["progress"])
+            lat, lng, segment_idx = interpolate_position(waypoints, state["progress"], route_length_km)
             stop_index = stop_indices[segment_idx]
 
             # Crowding pattern based on stop
@@ -222,7 +253,7 @@ async def run_simulation():
                     target_stop = bus["skip_stop_index"] + 1
                     target_wp_idx = next((i for i, s_idx in enumerate(stop_indices) if s_idx >= target_stop), n)
                     state["progress"] = target_wp_idx / n
-                    lat, lng, segment_idx = interpolate_position(waypoints, state["progress"])
+                    lat, lng, segment_idx = interpolate_position(waypoints, state["progress"], route_length_km)
                     stop_index = stop_indices[segment_idx]
                     state["skip_done"] = True
                     
@@ -249,6 +280,9 @@ async def run_simulation():
             if state["is_ghost"]:
                 speed = 0
 
+            # Snap to polyline to ensure it stays strictly on road
+            lat, lng = snap_to_polyline((lat, lng), waypoints)
+
             row = {
                 "id": bus_id,
                 "route": bus["route"],
@@ -267,6 +301,62 @@ async def run_simulation():
                 supabase.table("buses").upsert(row, on_conflict="id").execute()
             except Exception as e:
                 logger.error(f"Upsert failed for {bus_id}: {e}")
+
+            # Generate random passenger pings
+            import httpx
+            num_pings = random.randint(2, 5)
+            async def send_ping(p_lat, p_lng):
+                try:
+                    async with httpx.AsyncClient() as client:
+                        await client.post(
+                            "http://localhost:8000/api/passenger-ping",
+                            json={"lat": p_lat, "lng": p_lng, "resolution": 8},
+                            timeout=2.0
+                        )
+                except Exception:
+                    pass
+                    
+            for _ in range(num_pings):
+                # ~1km offset
+                ping_lat = lat + random.uniform(-0.009, 0.009)
+                ping_lng = lng + random.uniform(-0.009, 0.009)
+                asyncio.create_task(send_ping(ping_lat, ping_lng))
+
+            # ── Deviation detection ──────────────────────────────────────
+            try:
+                dev_result = dev_det.check_deviation(
+                    bus_id      = bus_id,
+                    current_pos = (lat, lng),
+                    route_polyline = waypoints,
+                )
+                consec = dev_det.record_tick(bus_id, dev_result["deviated"])
+
+                if consec >= dev_det.CONSECUTIVE_TICKS_ALERT:
+                    # Build stops-ahead list from current stop_index
+                    stop_names = [
+                        f"Stop-{i}" for i in range(
+                            min(stop_index + 1, len(bus["stops"]) - 1),
+                            len(bus["stops"])
+                        )
+                    ]
+                    # All buses on same route (for next-available-stop)
+                    same_route_buses = [
+                        {
+                            "id": b["id"],
+                            "is_deviated": dev_det._consecutive_deviation.get(b["id"], 0) >= dev_det.CONSECUTIVE_TICKS_ALERT,
+                            "next_stop_name": f"Stop-{bus_state[b['id']].get('progress', 0):.0f}"
+                        }
+                        for b in BUSES if b["route"] == bus["route"]
+                    ]
+                    asyncio.create_task(dev_det.maybe_alert(
+                        bus_id           = bus_id,
+                        route            = bus["route"],
+                        deviation_result = dev_result,
+                        stop_names       = stop_names,
+                        all_buses_on_route = same_route_buses,
+                    ))
+            except Exception as _e:
+                pass  # Never let deviation detection crash the sim loop
 
         step += 1
         await asyncio.sleep(PING_INTERVAL)

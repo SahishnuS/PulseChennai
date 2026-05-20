@@ -120,9 +120,13 @@ html, body, #root {
 .bus-marker .crowd-dot.high { background: var(--danger); }
 
 /* ── Ghost Pulse Animation ── */
-@keyframes ghostPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
-  50% { opacity: 0.8; box-shadow: 0 0 0 12px rgba(249, 115, 22, 0); }
+@keyframes ghost-pulse {
+  0%, 100% { box-shadow: 0 0 0px var(--color-ghost-pulse); }
+  50% { box-shadow: 0 0 12px var(--color-ghost-pulse); }
+}
+
+.ghost-pulse {
+  animation: ghost-pulse 1.4s infinite;
 }
 
 @keyframes ghostCirclePulse {
@@ -264,8 +268,8 @@ html, body, #root {
 
 .sidebar {
   width: 260px;
-  background-color: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  background-color: var(--color-bg-panel);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -303,45 +307,47 @@ html, body, #root {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  border-radius: 12px;
-  color: var(--text-secondary);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   margin-bottom: 8px;
   border: none;
+  border-left: 3px solid transparent;
   background: transparent;
   width: 100%;
   text-align: left;
   font-size: 0.95rem;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-ui);
 }
 
 .sidebar-nav-item:hover {
-  background-color: rgba(255,255,255,0.05);
-  color: var(--text-primary);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
 }
 
 .sidebar-nav-item.active {
-  background-color: var(--accent);
-  color: #fff;
+  background-color: var(--color-accent-dim);
+  color: var(--color-text-primary);
+  border-left: 3px solid var(--color-accent);
 }
 
 .plan-trip-btn {
-  background-color: var(--accent-green);
-  color: #000;
+  background-color: var(--color-accent);
+  color: #080C14;
   font-weight: 700;
   padding: 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-card, 10px);
   text-align: center;
   margin-top: 24px;
   cursor: pointer;
   border: none;
   width: 100%;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-ui);
   font-size: 0.95rem;
-  transition: opacity 0.2s;
+  transition: all 0.2s;
 }
 .plan-trip-btn:hover {
-  opacity: 0.9;
+  box-shadow: var(--shadow-accent);
 }
