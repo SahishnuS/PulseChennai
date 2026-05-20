@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Ticket, Route, Headphones, Settings, LogOut, MessageCircle } from 'lucide-react';
 import MapView from './views/MapView';
@@ -7,7 +7,97 @@ import JourneyView from './views/JourneyView';
 import GhostBusBanner from './components/GhostBusBanner';
 import SettingsPage from './pages/SettingsPage';
 import TicketsPage from './pages/TicketsPage';
+import PlanTripModal from './components/PlanTripModal';
 import './index.css';
+
+function DraggableChatButton({ onClick, isVisible }) {
+  const [pos, setPos] = useState(() => {
+    const saved = localStorage.getItem('chatBtnPos');
+    return saved ? JSON.parse(saved) : { right: 24, bottom: 24 };
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = React.useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0 });
+  const [showGrid, setShowGrid] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('chatBtnPos', JSON.stringify(pos));
+  }, [pos]);
+
+  const handlePointerDown = (e) => {
+    e.preventDefault();
+    e.target.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: pos.right,
+      startBottom: pos.bottom
+    };
+    setIsDragging(false);
+    setShowGrid(true);
+  };
+
+  const handlePointerMove = (e) => {
+    if (!e.target.hasPointerCapture(e.pointerId)) return;
+    
+    const deltaX = e.clientX - dragRef.current.startX;
+    const deltaY = e.clientY - dragRef.current.startY;
+    
+    // Only count as drag if moved more than 3px to avoid accidental drags on click
+    if (!isDragging && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+      setIsDragging(true);
+    }
+    
+    if (isDragging) {
+      const newRight = Math.max(16, Math.min(window.innerWidth - 72, dragRef.current.startRight - deltaX));
+      const newBottom = Math.max(16, Math.min(window.innerHeight - 72, dragRef.current.startBottom - deltaY));
+      setPos({ right: newRight, bottom: newBottom });
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    e.target.releasePointerCapture(e.pointerId);
+    setShowGrid(false);
+    if (!isDragging) {
+      onClick(); // Handle click if it wasn't a drag
+    }
+    // Small delay to prevent click from firing right after drag
+    setTimeout(() => setIsDragging(false), 50);
+  };
+
+  if (!isVisible) return null;
+
+  return (
+    <>
+      {showGrid && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+          zIndex: 9998,
+          pointerEvents: 'none'
+        }} />
+      )}
+      <button 
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        title="Drag to move"
+        style={{
+          position: 'absolute', bottom: pos.bottom, right: pos.right,
+          width: '56px', height: '56px', borderRadius: '50%',
+          background: 'var(--color-accent)', color: '#080C14', border: 'none',
+          boxShadow: isDragging ? '0 10px 25px rgba(0,212,255,0.4)' : 'var(--shadow-accent)',
+          cursor: isDragging ? 'grabbing' : 'grab', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: isDragging ? 'none' : 'box-shadow 0.2s',
+          touchAction: 'none'
+        }}
+      >
+        <MessageCircle size={24} style={{ pointerEvents: 'none' }} />
+      </button>
+    </>
+  );
+}
 
 const TABS = [
   { id: 'map', label: 'Map', labelTa: 'வரைபடம்' },
@@ -19,6 +109,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('map');
   const [language, setLanguage] = useState('en');
   const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [focusBusId, setFocusBusId] = useState(null);
 
   // Simulate initial connection
   React.useEffect(() => {
@@ -108,7 +200,7 @@ export default function App() {
             {language === 'en' ? 'Support' : 'உதவி'}
           </button>
 
-          <button className="plan-trip-btn" onClick={() => showToast(language === 'en' ? 'Trip planner coming soon' : 'பயணத் திட்டம் விரைவில் வரும்')}>
+          <button className="plan-trip-btn" onClick={() => setIsModalOpen(true)}>
             {language === 'en' ? 'Plan New Trip' : 'புதிய பயணம்'}
           </button>
         </nav>
@@ -129,20 +221,31 @@ export default function App() {
       </aside>
 
       {/* ── Main Content Area ── */}
-      <main className="main-content">
-        {/* Top Header */}
+      <main className="main-content" style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        {/* Fixed Top Header */}
         <header style={{
+          height: '52px',
+          flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
-          padding: '16px 24px',
-          background: 'transparent',
-          position: 'absolute',
-          top: 0, right: 0, left: 0,
-          zIndex: 1000,
-          pointerEvents: 'none' /* let clicks pass to map underneath except for buttons */
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          background: 'var(--color-bg-panel)',
+          borderBottom: '1px solid var(--color-border)',
+          zIndex: 100,
+          position: 'relative'
         }}>
-          <div style={{ display: 'flex', gap: '16px', pointerEvents: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+              {activeTab === 'map' && (language === 'en' ? 'Dashboard' : 'முகப்பு')}
+              {activeTab === 'tickets' && (language === 'en' ? 'My Tickets' : 'டிக்கெட்டுகள்')}
+              {activeTab === 'journey' && (language === 'en' ? 'Routes' : 'வழிகள்')}
+              {activeTab === 'assistant' && (language === 'en' ? 'Support' : 'உதவி')}
+              {activeTab === 'settings' && (language === 'en' ? 'Settings' : 'அமைப்புகள்')}
+            </h2>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button
               onClick={toggleLanguage}
               style={{
@@ -173,7 +276,7 @@ export default function App() {
         </header>
 
         {/* ── Ghost Bus Banner ── */}
-        <div style={{ position: 'absolute', top: 60, left: 0, right: 0, zIndex: 1000 }}>
+        <div style={{ position: 'absolute', top: 52, left: 0, right: 0, zIndex: 99 }}>
           <GhostBusBanner language={language} />
         </div>
 
@@ -184,7 +287,7 @@ export default function App() {
           <AnimatePresence mode="wait">
             {activeTab === 'map' && (
               <motion.div key="map" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} style={{ height: '100%' }}>
-                <MapView language={language} />
+                <MapView language={language} focusBusId={focusBusId} onClearFocus={() => setFocusBusId(null)} />
               </motion.div>
             )}
             {activeTab === 'assistant' && (
@@ -194,7 +297,10 @@ export default function App() {
             )}
             {activeTab === 'journey' && (
               <motion.div key="journey" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} style={{ height: '100%' }}>
-                <JourneyView language={language} />
+                <JourneyView language={language} onTrackBus={(busId) => {
+                  setFocusBusId(busId);
+                  setActiveTab('map');
+                }} />
               </motion.div>
             )}
             {activeTab === 'settings' && (
@@ -204,32 +310,20 @@ export default function App() {
             )}
             {activeTab === 'tickets' && (
               <motion.div key="tickets" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} style={{ height: '100%' }}>
-                <TicketsPage onTrackBus={(busId) => {
+                <TicketsPage language={language} onTrackBus={(busId) => {
+                  setFocusBusId(busId);
                   setActiveTab('map');
-                  // We would normally pass this busId down to MapView to auto-focus it
-                  showToast(`Tracking ${busId}`);
                 }} />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* ── Floating Assistant Button (Matches Mockup) ── */}
-        {activeTab !== 'assistant' && (
-          <button 
-            onClick={() => setActiveTab('assistant')}
-            style={{
-              position: 'absolute', bottom: '24px', right: '24px',
-              width: '56px', height: '56px', borderRadius: '50%',
-              background: 'var(--color-accent)', color: '#080C14', border: 'none',
-              boxShadow: 'var(--shadow-accent)',
-              cursor: 'pointer', zIndex: 1000,
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}
-          >
-            <MessageCircle size={24} />
-          </button>
-        )}
+        {/* ── Floating Assistant Button ── */}
+        <DraggableChatButton 
+          onClick={() => setActiveTab('assistant')} 
+          isVisible={activeTab !== 'assistant' && !isModalOpen} 
+        />
 
         {/* ── Bottom Tab Bar (Mobile Only) ── */}
         <nav className="bottom-tabs" style={{
@@ -262,22 +356,21 @@ export default function App() {
         {/* ── Toast Message ── */}
         <AnimatePresence>
           {toastMessage && (
-            <motion.div
-              initial={{ opacity: 0, y: 50, x: '-50%' }}
-              animate={{ opacity: 1, y: 0, x: '-50%' }}
-              exit={{ opacity: 0, y: 50, x: '-50%' }}
-              style={{
-                position: 'absolute', bottom: '100px', left: '50%',
-                background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)',
-                color: 'white', padding: '12px 24px', borderRadius: '30px',
-                fontWeight: 600, fontSize: '0.95rem', zIndex: 9999,
-                boxShadow: '0 10px 25px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)'
-              }}
-            >
+            <div className="toast slide-up">
               {toastMessage}
-            </motion.div>
+            </div>
           )}
         </AnimatePresence>
+
+        <PlanTripModal 
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          language={language}
+          onTrackBus={(busId) => {
+            setFocusBusId(busId);
+            setActiveTab('map');
+          }}
+        />
       </main>
     </div>
   );

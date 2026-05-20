@@ -1,18 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Tooltip, Polygon } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import BusDetailPanel from '../components/BusDetailPanel';
-import ETABadge from '../components/ETABadge';
+import ETABadge, { computeETA } from '../components/ETABadge';
 import { API_BASE } from '../lib/supabase';
+import { loadAllRoutePolylines, snapToPolyline } from '../services/routePolylines';
+import { createSimulatorState, tickBuses } from '../services/busSimulator';
+import { addPingsAndGetHexes } from '../services/h3DemandLayer';
 import { useWatchedStop } from '../context/WatchedStopContext';
 import { useStopArrivalAlert } from '../hooks/useStopArrivalAlert';
 import { useDeviationAlert } from '../hooks/useDeviationAlert';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, MapPin } from 'lucide-react';
 
 const CHENNAI_CENTER = [13.0827, 80.2707];
-const ROUTES_TO_FETCH = ['19', '102X', '515'];
-const ROUTE_COLORS = { '19': '#3B82F6', '102X': '#22C55E', '515': '#F97316' };
+const ROUTES_TO_FETCH = ['19', '102X', '515', '21C', '70', '47A'];
+const ROUTE_COLORS = { 
+  '19': '#00D4FF', 
+  '102X': '#00E5A0', 
+  '515': '#FFB800',
+  '21C': '#FF6B35',
+  '70': '#C084FC',
+  '47A': '#F472B6'
+};
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -65,19 +75,60 @@ const createBusIcon = (bus, isHighlighted, isDeviated) => {
   });
 };
 
-export default function MapView({ language }) {
+const LerpingBusMarker = ({ bus, isHighlighted, isDeviated, routePolyline, onClick }) => {
+  const [pos, setPos] = useState(snapToPolyline([bus.lat, bus.lng], routePolyline));
+  const posRef = useRef(pos);
+  const targetRef = useRef(pos);
+  const requestRef = useRef();
+
+  useEffect(() => {
+    targetRef.current = snapToPolyline([bus.lat, bus.lng], routePolyline);
+  }, [bus.lat, bus.lng, routePolyline]);
+
+  useEffect(() => {
+    const animate = () => {
+      const current = posRef.current;
+      const target = targetRef.current;
+      const dLat = target[0] - current[0];
+      const dLng = target[1] - current[1];
+      
+      if (Math.abs(dLat) > 0.00001 || Math.abs(dLng) > 0.00001) {
+        const next = [current[0] + dLat * 0.08, current[1] + dLng * 0.08];
+        posRef.current = next;
+        setPos(next);
+      }
+      requestRef.current = requestAnimationFrame(animate);
+    };
+    requestRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, []);
+
+  return (
+    <Marker
+      position={pos}
+      icon={createBusIcon(bus, isHighlighted, isDeviated)}
+      eventHandlers={{ click: onClick }}
+    />
+  );
+};
+
+export default function MapView({ language, focusBusId, onClearFocus }) {
   const mapRef = useRef(null);
   
   const [buses, setBuses] = useState([]);
   const [stops, setStops] = useState({});
   const [geometries, setGeometries] = useState({});
+  const [tomtomPolylines, setTomtomPolylines] = useState(new Map());
   const [selectedBus, setSelectedBus] = useState(null);
   
-  const [userLocation, setUserLocation] = useState({ lat: 13.0400, lng: 80.2330, accuracy: 50 });
+  const [userLocation, setUserLocation] = useState({ lat: 13.0827, lng: 80.2707, accuracy: 50 });
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [nearbyPanelExpanded, setNearbyPanelExpanded] = useState(false);
+
+  const [mapCenter, setMapCenter] = useState(CHENNAI_CENTER);
+  const [mapZoom, setMapZoom] = useState(12);
 
   const { watchedStop, setWatchedStop } = useWatchedStop();
   const { alert, setAlert } = useStopArrivalAlert(buses);
@@ -86,43 +137,31 @@ export default function MapView({ language }) {
   // ── Deviation Alerts ──
   const { deviationAlert, dismissAlert, deviatedBusIds } = useDeviationAlert();
 
-  // ── H3 Demand Layer ────────────────────────────────────────────────────
+  // ── H3 Demand Layer (frontend-side, clustered around buses) ──
   const [demandHexes, setDemandHexes] = useState([]);
   const [showDemandLayer, setShowDemandLayer] = useState(true);
 
-  useEffect(() => {
-    const fetchDemand = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/h3-demand`);
-        if (res.ok) {
-          const data = await res.json();
-          setDemandHexes(data.hexes || []);
-        }
-      } catch (e) { /* ignore */ }
-    };
-    fetchDemand();
-    const interval = setInterval(fetchDemand, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
   const HEX_STYLES = {
-    low:    { fillColor: 'rgba(0, 212, 255, 0.10)',  color: 'transparent', weight: 0, fillOpacity: 1 },
-    medium: { fillColor: 'rgba(255, 184, 0, 0.20)',  color: '#FFB800',     weight: 1, fillOpacity: 1, opacity: 0.3 },
-    high:   { fillColor: 'rgba(255, 69,  96, 0.30)',  color: '#FF4560',     weight: 1, fillOpacity: 1, opacity: 0.5 },
+    low:    { fillColor: 'rgba(0, 212, 255, 0.08)',  color: 'transparent', weight: 0, fillOpacity: 1 },
+    medium: { fillColor: 'rgba(255, 184, 0, 0.18)',  color: '#FFB800',     weight: 0.5, fillOpacity: 1, opacity: 0.5 },
+    high:   { fillColor: 'rgba(255, 69,  96, 0.28)',  color: '#FF4560',     weight: 1, fillOpacity: 1, opacity: 0.6 },
   };
 
   const POPULAR_STOPS = [
-    'T Nagar Bus Terminus', 'Thiruvanmiyur Terminus', 'Kelambakkam', 
-    'Siruseri', 'Broadway', 'Mamallapuram'
+    'T Nagar', 'Velachery', 'Kelambakkam', 
+    'Sholinganallur', 'Broadway', 'Mamallapuram', 'Adyar', 'Koyambedu'
   ];
 
-  // Fetch stops (per-route) and road-snapped polylines (single batch call)
+  // ── Bus Simulator State ──
+  const simBusesRef = useRef(createSimulatorState());
+  const tickCountRef = useRef(0);
+  const [etaData, setEtaData] = useState({});
+
+  // Fetch stops and road-snapped polylines
   useEffect(() => {
     const fetchStopsAndGeometry = async () => {
       const allStops = {};
-      const allGeometries = {};
 
-      // ── 1. Fetch stop lists for each route (for CircleMarkers) ───────────
       await Promise.all(
         ROUTES_TO_FETCH.map(async (route) => {
           try {
@@ -130,51 +169,71 @@ export default function MapView({ language }) {
             const data = await res.json();
             allStops[route] = data.stops || [];
           } catch (e) {
-            console.warn(`Failed to fetch stops for route ${route}:`, e);
             allStops[route] = [];
           }
         })
       );
 
-      // ── 2. Fetch road-snapped polylines (single endpoint, cached 24 h) ──
+      // Fetch road-snapped polylines (OSRM primary, TomTom fallback)
       try {
-        const polyRes = await fetch(`${API_BASE}/api/polylines`);
-        if (polyRes.ok) {
-          const polyData = await polyRes.json();
-          // Response: { routes: { "19": [[lat,lng],...], ... } }
-          for (const route of ROUTES_TO_FETCH) {
-            if (polyData.routes?.[route]) {
-              // Already [lat, lng] arrays — store directly
-              allGeometries[route] = polyData.routes[route];
-            }
-          }
-        } else {
-          console.warn('Polylines endpoint returned', polyRes.status, '— falling back to stop-to-stop lines');
-        }
+        const polyMap = await loadAllRoutePolylines();
+        setTomtomPolylines(polyMap);
       } catch (e) {
-        console.warn('Failed to fetch road polylines, using stop-to-stop lines:', e);
+        console.warn('Failed to fetch polylines:', e);
       }
 
       setStops(allStops);
-      setGeometries(allGeometries);
     };
     fetchStopsAndGeometry();
   }, []);
 
-  // Fetch buses
+  // ── Frontend bus simulation: 2s tick ──
   useEffect(() => {
-    const fetchBuses = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/buses`);
-        const data = await res.json();
-        const filtered = (data.buses || []).filter(b => ROUTES_TO_FETCH.includes(b.route));
-        setBuses(filtered);
-      } catch (e) { /* ignore */ }
-    };
-    fetchBuses();
-    const interval = setInterval(fetchBuses, 5000);
+    const interval = setInterval(() => {
+      if (tomtomPolylines.size === 0) return;
+      tickCountRef.current += 1;
+      const updated = tickBuses(simBusesRef.current, tomtomPolylines, tickCountRef.current);
+      simBusesRef.current = updated;
+      setBuses([...updated]);
+
+      // Update H3 demand hexes (clustered around bus positions)
+      const hexes = addPingsAndGetHexes(updated);
+      setDemandHexes(hexes);
+    }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [tomtomPolylines]);
+
+  // ── ETA recalculation every 30s ──
+  useEffect(() => {
+    const calcETAs = () => {
+      if (tomtomPolylines.size === 0) return;
+      const newEtas = {};
+      buses.forEach(bus => {
+        newEtas[bus.id] = computeETA(bus, tomtomPolylines);
+      });
+      setEtaData(newEtas);
+    };
+    calcETAs();
+    const interval = setInterval(calcETAs, 30000);
+    return () => clearInterval(interval);
+  }, [buses, tomtomPolylines]);
+
+  // Handle focusBusId
+  useEffect(() => {
+    if (focusBusId && buses.length > 0) {
+      const busToFocus = buses.find(b => b.id === focusBusId);
+      if (busToFocus) {
+        setSelectedBus(busToFocus);
+        setMapCenter([busToFocus.lat, busToFocus.lng]);
+        setMapZoom(16);
+      }
+    }
+  }, [focusBusId, buses]);
+
+  const handleMapClick = () => {
+    setSelectedBus(null);
+    if (onClearFocus) onClearFocus();
+  };
 
   const nearbyBuses = buses
     .filter(b => haversineDistance(userLocation.lat, userLocation.lng, b.lat, b.lng) < 5000)
@@ -184,27 +243,28 @@ export default function MapView({ language }) {
   return (
     <div style={{ height: '100%', position: 'relative' }}>
       <MapContainer 
-        center={CHENNAI_CENTER} 
-        zoom={12} 
+        center={mapCenter} 
+        zoom={mapZoom} 
         zoomControl={false}
         ref={mapRef}
         style={{ height: '100%', width: '100%', background: 'var(--color-bg-base)' }}
+        onClick={handleMapClick}
       >
+        <MapUpdater center={mapCenter} zoom={mapZoom} />
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           attribution="&copy; <a href='https://openstreetmap.org'>OpenStreetMap</a> &copy; <a href='https://carto.com/'>CARTO</a>"
         />
 
-        {/* Polylines — road-snapped from /api/polylines, fallback to stop-to-stop */}
+        {/* Polylines — road-snapped from TomTom */}
         {ROUTES_TO_FETCH.map(route => {
-          let coords = [];
-          if (geometries[route]?.length > 0) {
-            // /api/polylines returns [[lat, lng], ...] directly — no conversion needed
-            coords = geometries[route];
-          } else if (stops[route]?.length > 0) {
-            coords = stops[route].map(s => [s.lat, s.lng]);
+          let coords = tomtomPolylines.get(route);
+          if (!coords || !coords.length) {
+            if (stops[route]?.length > 0) {
+              coords = stops[route].map(s => [s.lat, s.lng]);
+            }
           }
-          if (!coords.length) return null;
+          if (!coords || !coords.length) return null;
           return (
             <Polyline
               key={route}
@@ -248,17 +308,16 @@ export default function MapView({ language }) {
         {buses.map(bus => {
           const isHighlighted = selectedDestination && stops[bus.route]?.some(s => s.name.toLowerCase().includes(selectedDestination.toLowerCase()));
           return (
-            <Marker
+            <LerpingBusMarker
               key={bus.id}
-              position={[bus.lat, bus.lng]}
-              icon={createBusIcon(bus, isHighlighted, deviatedBusIds.has(bus.id))}
-              eventHandlers={{
-                click: () => {
-                  setSelectedBus(bus);
-                  if (mapRef.current) {
-                    mapRef.current.flyTo([bus.lat, bus.lng], 15);
-                  }
-                }
+              bus={bus}
+              isHighlighted={isHighlighted}
+              isDeviated={deviatedBusIds.has(bus.id)}
+              routePolyline={tomtomPolylines.get(bus.route)}
+              onClick={() => {
+                setSelectedBus(bus);
+                setMapCenter([bus.lat, bus.lng]);
+                setMapZoom(16);
               }}
             />
           );
@@ -395,8 +454,8 @@ export default function MapView({ language }) {
 
       {/* ── Search Bar ── */}
       <div style={{
-        position: 'absolute', top: '24px', left: '24px', right: '24px', zIndex: 1000,
-        maxWidth: '400px', margin: '0 auto'
+        position: 'absolute', top: '68px', left: '24px', right: '24px', zIndex: 50,
+        maxWidth: '560px', margin: '0 auto'
       }}>
         <input 
           type="text"
@@ -431,7 +490,7 @@ export default function MapView({ language }) {
                 onMouseOver={(e) => e.target.style.background = 'var(--color-bg-panel)'}
                 onMouseOut={(e) => e.target.style.background = 'transparent'}
               >
-                📍 {stop}
+                <MapPin size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '6px' }} /> {stop}
               </div>
             ))}
           </div>
@@ -460,7 +519,8 @@ export default function MapView({ language }) {
           {nearbyBuses.length > 0 ? nearbyBuses.map(bus => (
             <div key={bus.id} onClick={() => { 
                 setSelectedBus(bus); 
-                if (mapRef.current) mapRef.current.flyTo([bus.lat, bus.lng], 15);
+                setMapCenter([bus.lat, bus.lng]);
+                setMapZoom(16);
               }} style={{
               background: 'var(--color-bg-panel)', border: '1px solid var(--color-border)',
               padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between',
@@ -471,16 +531,20 @@ export default function MapView({ language }) {
                   {bus.route}
                 </div>
                 <div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>{bus.id} {bus.is_ghost ? '👻' : ''}</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {bus.id}
+                    {bus.is_ghost && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: 'var(--color-ghost-pulse, #FF6B35)', fontWeight: 700, background: 'rgba(255,107,53,0.1)', padding: '2px 6px', borderRadius: '4px' }}>GPS RECOVERING</span>}
+                  </div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                    Crowding: <span style={{ color: bus.crowding === 'high' ? 'var(--color-danger)' : 'var(--color-success)' }}>{bus.crowding}</span>
+                    Crowding: <span style={{ color: bus.crowding === 'high' ? 'var(--color-danger)' : bus.crowding === 'medium' ? 'var(--color-warning)' : 'var(--color-success)' }}>{bus.crowding}</span>
                   </div>
                 </div>
               </div>
               <ETABadge
-                eta_minutes={Math.max(1, Math.round((haversineDistance(userLocation.lat, userLocation.lng, bus.lat, bus.lng) / 1000 * 1.35 / 25) * 60))}
-                confidence_pct={bus.is_ghost ? 38 : bus.reliability_score > 0.75 ? 82 : 62}
-                confidence_label={bus.is_ghost ? 'LOW' : bus.reliability_score > 0.75 ? 'HIGH' : 'MODERATE'}
+                eta_minutes={etaData[bus.id]?.eta}
+                confidence_pct={etaData[bus.id]?.confidence}
+                confidence_label={etaData[bus.id]?.label}
+                model={etaData[bus.id]?.model}
               />
             </div>
           )) : (
@@ -659,4 +723,12 @@ export default function MapView({ language }) {
 
     </div>
   );
+}
+
+function MapUpdater({ center, zoom }) {
+  const map = useMap();
+  React.useEffect(() => {
+    map.setView(center, zoom, { animate: true });
+  }, [center, zoom, map]);
+  return null;
 }

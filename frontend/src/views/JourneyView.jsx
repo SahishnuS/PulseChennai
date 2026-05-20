@@ -1,365 +1,384 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { API_BASE } from '../lib/supabase';
+import React, { useState, useEffect } from 'react';
+import { MapPin, Bell, Gauge, Radio, Navigation, Eye } from 'lucide-react';
+import { INITIAL_BUSES } from '../services/busSimulator';
 
-export default function JourneyView({ language }) {
-  const [buses, setBuses] = useState([]);
-  const [stops, setStops] = useState([]);
-  const [selectedBus, setSelectedBus] = useState('');
-  const [selectedStop, setSelectedStop] = useState('');
-  const [watching, setWatching] = useState(false);
-  const [eta, setEta] = useState(null);
-  const [showArrival, setShowArrival] = useState(false);
-  const arrivalDismissed = useRef(false);
-  const sessionId = useRef(crypto.randomUUID());
+// ── Hardcoded route data (Prompt 4 spec) ──
+const ROUTE_DATA = {
+  "19": {
+    name: "Thiruporur ↔ T Nagar",
+    color: "#00D4FF",
+    stops: ["Thiruporur", "Navalur", "Sholinganallur", "Perungudi", "Taramani", "Velachery", "Saidapet", "T Nagar"],
+    frequency: "Every 10 min",
+    firstService: "05:00",
+    lastService: "23:00",
+  },
+  "102X": {
+    name: "Kelambakkam ↔ Broadway",
+    color: "#00E5A0",
+    stops: ["Kelambakkam", "Siruseri", "Sholinganallur", "Perungudi", "Adyar", "Saidapet", "Guindy", "Park Town", "Broadway"],
+    frequency: "Every 12 min",
+    firstService: "05:30",
+    lastService: "22:30",
+  },
+  "515": {
+    name: "Tambaram ↔ Mamallapuram",
+    color: "#FFB800",
+    stops: ["Tambaram", "Perungalathur", "Vandalur", "Mudichur", "Maraimalai Nagar", "Kovalam", "Mamallapuram"],
+    frequency: "Every 20 min",
+    firstService: "06:00",
+    lastService: "21:00",
+  },
+  "21C": {
+    name: "Koyambedu ↔ Adyar",
+    color: "#FF6B35",
+    stops: ["Koyambedu", "Vadapalani", "Ashok Nagar", "Anna Nagar", "Kodambakkam", "Nandanam", "Adyar"],
+    frequency: "Every 8 min",
+    firstService: "05:00",
+    lastService: "23:30",
+  },
+  "70": {
+    name: "Central ↔ Ambattur",
+    color: "#C084FC",
+    stops: ["Central", "Egmore", "Kilpauk", "Aminjikarai", "Shenoy Nagar", "Anna Nagar West", "Perambur", "Ambattur"],
+    frequency: "Every 15 min",
+    firstService: "05:30",
+    lastService: "22:00",
+  },
+  "47A": {
+    name: "T Nagar ↔ Chromepet",
+    color: "#F472B6",
+    stops: ["T Nagar", "Saidapet", "Guindy", "St. Thomas Mount", "Palavanthangal", "Chromepet"],
+    frequency: "Every 18 min",
+    firstService: "06:00",
+    lastService: "21:30",
+  },
+};
 
-  // Fetch buses
-  useEffect(() => {
-    const fetchBuses = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/buses`);
-        const data = await res.json();
-        setBuses(data.buses || []);
-      } catch (e) { /* ignore */ }
-    };
-    fetchBuses();
-    const interval = setInterval(fetchBuses, 10000);
-    return () => clearInterval(interval);
-  }, []);
+export default function JourneyView({ language, onTrackBus }) {
+  const [selectedRoute, setSelectedRoute] = useState('19');
+  const [selectedStopIdx, setSelectedStopIdx] = useState(null);
+  const [watchedStopLocal, setWatchedStopLocal] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('watched_stop')); } catch { return null; }
+  });
+  const [alertDist, setAlertDist] = useState('400m');
 
-  // Fetch stops when bus changes
-  useEffect(() => {
-    if (!selectedBus) { setStops([]); return; }
-    const bus = buses.find(b => b.id === selectedBus);
-    if (!bus) return;
+  const routeMeta = ROUTE_DATA[selectedRoute];
+  const routeStops = routeMeta?.stops || [];
 
-    const fetchStops = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/stops?route=${bus.route}`);
-        const data = await res.json();
-        setStops(data.stops || []);
-      } catch (e) { /* ignore */ }
-    };
-    fetchStops();
-  }, [selectedBus, buses]);
+  // Count buses from INITIAL_BUSES
+  const countBuses = (routeId) => INITIAL_BUSES.filter(b => b.route === routeId).length;
+  const routeBuses = INITIAL_BUSES.filter(b => b.route === selectedRoute);
 
-  // Live ETA polling when watching
-  useEffect(() => {
-    if (!watching || !selectedBus || !selectedStop) return;
-
-    const fetchEta = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/buses/${selectedBus}/eta?stop_id=${selectedStop}`);
-        const data = await res.json();
-        setEta(data);
-
-        // Alert trigger at ≤3 min
-        if (data.eta_min <= 3 && !arrivalDismissed.current) {
-          triggerArrivalAlert(data);
-        }
-      } catch (e) { /* ignore */ }
-    };
-
-    fetchEta();
-    const interval = setInterval(fetchEta, 10000);
-    return () => clearInterval(interval);
-  }, [watching, selectedBus, selectedStop]);
-
-  const triggerArrivalAlert = (etaData) => {
-    setShowArrival(true);
-
-    // Voice alert
-    const stopObj = stops.find(s => s.id === selectedStop);
-    const stopName = language === 'ta' && stopObj?.name_ta ? stopObj.name_ta : stopObj?.name || selectedStop;
-
-    const msg = language === 'ta'
-      ? `கவனிக்கவும்! உங்கள் நிறுத்தம் ${stopName} வருகிறது. இறங்க தயாராகுங்கள்.`
-      : `Attention! Your stop ${stopName} is approaching. Please get ready to exit the bus.`;
-
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(msg);
-      utterance.lang = language === 'ta' ? 'ta-IN' : 'en-IN';
-      utterance.rate = 0.9;
-      window.speechSynthesis.speak(utterance);
-    }
-
-    // Vibrate
-    if (navigator.vibrate) {
-      navigator.vibrate([200, 100, 200, 100, 400]);
-    }
-
-    // Browser notification
-    if (Notification.permission === 'granted') {
-      new Notification(language === 'en' ? 'Get ready! Your stop is coming up' : 'தயாராகுங்கள்! உங்கள் நிறுத்தம் வருகிறது');
-    } else if (Notification.permission !== 'denied') {
-      Notification.requestPermission();
-    }
+  const handleWatchStop = () => {
+    if (selectedStopIdx === null) return;
+    const data = { route: selectedRoute, stop: routeStops[selectedStopIdx], distance: alertDist };
+    localStorage.setItem('watched_stop', JSON.stringify(data));
+    setWatchedStopLocal(data);
   };
-
-  const startWatching = async () => {
-    if (!selectedBus || !selectedStop) return;
-    arrivalDismissed.current = false;
-    setWatching(true);
-
-    // Register with backend
-    try {
-      await fetch(`${API_BASE}/api/journey/watch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId.current,
-          bus_id: selectedBus,
-          target_stop_id: selectedStop,
-        }),
-      });
-    } catch (e) { /* ignore */ }
-  };
-
-  const stopWatching = () => {
-    setWatching(false);
-    setEta(null);
-    setShowArrival(false);
-  };
-
-  const dismissArrival = () => {
-    setShowArrival(false);
-    arrivalDismissed.current = true;
-  };
-
-  const selectedBusObj = buses.find(b => b.id === selectedBus);
-  const selectedStopObj = stops.find(s => s.id === selectedStop);
-
-  // Calculate stop progress
-  const busStopIndex = selectedBusObj?.stop_index || 0;
-  const targetStopSequence = selectedStopObj?.sequence || 0;
-  const stopsAway = Math.max(0, targetStopSequence - busStopIndex - 1);
-  const totalStops = stops.length;
-  const progressPercent = totalStops > 0 ? Math.min(100, ((busStopIndex + 1) / totalStops) * 100) : 0;
 
   return (
     <div style={{
-      height: '100%',
-      overflowY: 'auto',
-      padding: '20px 16px',
-      background: '#0F172A',
+      height: '100%', display: 'flex',
+      background: 'var(--color-bg-base)', overflow: 'hidden',
     }}>
-      {/* ── Arrival Overlay ── */}
-      {showArrival && (
-        <div className="arrival-overlay" onClick={dismissArrival}>
-          <div style={{ fontSize: '4rem', marginBottom: '16px' }}>🚨</div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '8px' }}>
-            {language === 'en' ? 'Get Ready!' : 'தயாராகுங்கள்!'}
-          </h1>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 600, marginBottom: '24px' }}>
-            {language === 'ta' && selectedStopObj?.name_ta ? selectedStopObj.name_ta : selectedStopObj?.name || 'Your stop'} {language === 'en' ? 'is next' : 'அடுத்ததாக வருகிறது'}
-          </h2>
-          <p style={{ opacity: 0.8, fontSize: '0.9rem' }}>
-            {language === 'en' ? 'Tap to dismiss' : 'நிராகரிக்க தட்டவும்'}
-          </p>
+      {/* ── Left Column: Route Selector ── */}
+      <div style={{
+        width: '280px', flexShrink: 0,
+        borderRight: '1px solid var(--color-border)',
+        overflowY: 'auto', padding: '16px 0',
+        background: 'var(--color-bg-panel)',
+      }}>
+        {Object.entries(ROUTE_DATA).map(([routeId, meta]) => {
+          const isSelected = selectedRoute === routeId;
+          return (
+            <button
+              key={routeId}
+              onClick={() => { setSelectedRoute(routeId); setSelectedStopIdx(null); }}
+              style={{
+                width: '100%', textAlign: 'left',
+                padding: '14px 16px', cursor: 'pointer',
+                border: 'none', background: 'transparent',
+                borderLeft: isSelected ? `4px solid ${meta.color}` : '4px solid transparent',
+                transition: 'all 0.15s',
+              }}
+              onMouseOver={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+              onMouseOut={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                <span style={{
+                  fontFamily: 'var(--font-data)', fontWeight: 800,
+                  fontSize: '1.1rem', color: meta.color,
+                }}>
+                  {routeId}
+                </span>
+                <span style={{
+                  fontSize: '0.7rem', color: 'var(--color-text-muted)',
+                  background: 'rgba(255,255,255,0.05)',
+                  padding: '2px 6px', borderRadius: '4px',
+                  fontFamily: 'var(--font-data)',
+                }}>
+                  {countBuses(routeId)} active
+                </span>
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', margin: 0 }}>
+                {meta.name}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Right Column: Route Detail ── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+        {/* Route Header */}
+        <div style={{ marginBottom: '28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '8px' }}>
+            <span style={{
+              fontFamily: 'var(--font-data)', fontWeight: 800,
+              fontSize: '1.5rem', color: routeMeta.color,
+              background: `${routeMeta.color}15`, padding: '6px 16px',
+              borderRadius: '8px', border: `1px solid ${routeMeta.color}30`,
+            }}>
+              {selectedRoute}
+            </span>
+            <div>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                {routeMeta.name}
+              </h2>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{routeMeta.frequency}</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{routeMeta.firstService} – {routeMeta.lastService}</span>
+              </div>
+            </div>
+          </div>
         </div>
-      )}
 
-      {!watching ? (
-        /* ── Selection Mode ── */
-        <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '24px', textAlign: 'center' }}>
-            {language === 'en' ? '🎯 Track My Journey' : '🎯 என் பயணத்தை கண்காணி'}
-          </h2>
-
-          {/* Bus selector */}
-          <label style={{ display: 'block', marginBottom: '8px', color: '#94A3B8', fontSize: '0.85rem' }}>
-            {language === 'en' ? "I'm on this bus:" : 'நான் இந்த பேருந்தில் இருக்கிறேன்:'}
-          </label>
-          <select
-            value={selectedBus}
-            onChange={e => { setSelectedBus(e.target.value); setSelectedStop(''); }}
-            style={{
-              width: '100%', padding: '14px 16px', borderRadius: '12px',
-              border: '1px solid #334155', background: '#1E293B', color: '#F8FAFC',
-              fontSize: '1rem', marginBottom: '20px', outline: 'none',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            <option value="">{language === 'en' ? 'Select a bus...' : 'பேருந்து தேர்ந்தெடுக்கவும்...'}</option>
-            {buses.map(bus => (
-              <option key={bus.id} value={bus.id}>
-                {bus.route} — {bus.id} {bus.is_ghost ? '(Ghost)' : ''}
-              </option>
-            ))}
-          </select>
-
-          {/* Stop selector */}
-          <label style={{ display: 'block', marginBottom: '8px', color: '#94A3B8', fontSize: '0.85rem' }}>
-            {language === 'en' ? 'I want to get off at:' : 'நான் இறங்க விரும்புகிறேன்:'}
-          </label>
-          <select
-            value={selectedStop}
-            onChange={e => setSelectedStop(e.target.value)}
-            disabled={!selectedBus}
-            style={{
-              width: '100%', padding: '14px 16px', borderRadius: '12px',
-              border: '1px solid #334155', background: '#1E293B', color: '#F8FAFC',
-              fontSize: '1rem', marginBottom: '24px', outline: 'none',
-              opacity: selectedBus ? 1 : 0.5,
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            <option value="">{language === 'en' ? 'Select your stop...' : 'நிறுத்தம் தேர்ந்தெடுக்கவும்...'}</option>
-            {stops.map(stop => (
-              <option key={stop.id} value={stop.id}>
-                {language === 'ta' ? stop.name_ta : stop.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Start button */}
-          <button
-            onClick={startWatching}
-            disabled={!selectedBus || !selectedStop}
-            style={{
-              width: '100%', padding: '16px', borderRadius: '14px',
-              border: 'none', cursor: selectedBus && selectedStop ? 'pointer' : 'not-allowed',
-              background: selectedBus && selectedStop ? 'linear-gradient(135deg, #3B82F6, #2563EB)' : '#334155',
-              color: 'white', fontSize: '1.1rem', fontWeight: 700,
-              transition: 'all 0.2s',
-              fontFamily: 'Inter, sans-serif',
-              boxShadow: selectedBus && selectedStop ? '0 4px 16px rgba(59, 130, 246, 0.3)' : 'none',
-            }}
-          >
-            {language === 'en' ? '🔔 START WATCHING' : '🔔 கண்காணிக்க தொடங்கு'}
-          </button>
-        </div>
-      ) : (
-        /* ── Watching Mode ── */
-        <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-          {/* Header */}
+        {/* ── Stop Timeline ── */}
+        <div style={{ position: 'relative', paddingLeft: '32px', marginBottom: '32px' }}>
+          {/* Vertical line */}
           <div style={{
-            padding: '16px', borderRadius: '14px', background: '#1E293B',
-            marginBottom: '16px', textAlign: 'center',
-          }}>
-            <p style={{ color: '#94A3B8', fontSize: '0.8rem', marginBottom: '4px' }}>
-              {language === 'en' ? 'Watching' : 'கண்காணிக்கிறது'}
-            </p>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-              {selectedBusObj?.route} → {language === 'ta' && selectedStopObj?.name_ta ? selectedStopObj.name_ta : selectedStopObj?.name}
-            </h3>
-          </div>
+            position: 'absolute', left: '14px', top: '8px',
+            bottom: '8px', width: '2px',
+            background: routeMeta.color, opacity: 0.6,
+          }} />
 
-          {/* ETA Display */}
-          {eta && (
-            <div style={{
-              padding: '24px', borderRadius: '16px',
-              background: 'var(--bg-secondary)',
-              border: `1px solid ${eta.is_ghost ? 'var(--ghost-orange)' : 'var(--border)'}`,
-              boxShadow: eta.is_ghost ? '0 0 20px rgba(249, 115, 22, 0.2)' : '0 12px 32px rgba(0,0,0,0.3)',
-              marginBottom: '16px', textAlign: 'center', position: 'relative', overflow: 'hidden'
-            }}>
-              {eta.is_ghost && (
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: 'var(--ghost-orange)', color: 'white', fontSize: '0.75rem', fontWeight: 700, padding: '4px' }}>
-                  {language === 'en' ? 'GHOST MODE (ESTIMATED)' : 'மதிப்பீட்டு நிலை'}
-                </div>
-              )}
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '8px', marginTop: eta.is_ghost ? '20px' : '0' }}>
-                {language === 'en' ? 'Arriving in' : 'வருகை'}
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <h2 style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, lineHeight: 1 }}>
-                  {eta.eta_min}
-                </h2>
-                <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>-</span>
-                <h2 style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, lineHeight: 1 }}>
-                  {eta.eta_max}
-                </h2>
-              </div>
-              <p style={{ fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '4px' }}>
-                {language === 'en' ? 'minutes' : 'நிமிடங்கள்'}
-              </p>
+          {routeStops.map((stop, index) => {
+            const isFirst = index === 0;
+            const isLast = index === routeStops.length - 1;
+            const isSelected = selectedStopIdx === index;
+            const isWatched = watchedStopLocal?.route === selectedRoute && watchedStopLocal?.stop === stop;
+            const etaFromStart = index * 4; // 4 min per stop
+            const nextBusMin = index * 3 + 2;
 
-              {/* Confidence Badge */}
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                gap: '6px', marginTop: '16px', background: 'var(--bg-primary)',
-                padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border)'
-              }}>
-                {eta.confidence === 'high' && <span style={{ color: 'var(--success)' }}>✅</span>}
-                {eta.confidence === 'medium' && <span style={{ color: 'var(--warning)' }}>⚠️</span>}
-                {eta.confidence === 'low' && <span style={{ color: 'var(--danger)' }}>👻</span>}
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                  {eta.confidence === 'low'
-                    ? (language === 'en' ? 'Signal lost' : 'சமிக்ஞை இல்லை')
-                    : (language === 'en' ? `Confidence: ${eta.confidence}` : `நம்பகம்: ${eta.confidence}`)
-                  }
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-            {/* Progress bar */}
-            <div style={{
-              flex: 1, padding: '16px', borderRadius: '16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                  {language === 'en' ? 'Route Progress' : 'வழி முன்னேற்றம்'}
-                </span>
-                <span style={{ color: 'var(--text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                  {stopsAway} {language === 'en' ? 'stops' : 'நிறுத்தங்கள்'}
-                </span>
-              </div>
-              <div style={{ height: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', overflow: 'hidden' }}>
+            return (
+              <div
+                key={`${selectedRoute}-${stop}-${index}`}
+                onClick={() => setSelectedStopIdx(index)}
+                style={{
+                  position: 'relative',
+                  padding: '10px 16px 10px 24px',
+                  marginBottom: '2px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  background: isSelected ? 'rgba(0,212,255,0.05)' : 'transparent',
+                  border: isSelected ? '1px solid rgba(0,212,255,0.15)' : '1px solid transparent',
+                  transition: 'all 0.15s',
+                }}
+                onMouseOver={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                onMouseOut={e => { if (!isSelected) e.currentTarget.style.background = isSelected ? 'rgba(0,212,255,0.05)' : 'transparent'; }}
+              >
+                {/* Circle node */}
                 <div style={{
-                  height: '100%', width: `${progressPercent}%`,
-                  background: 'linear-gradient(90deg, var(--accent), var(--accent-green))',
-                  borderRadius: '4px', transition: 'width 0.5s ease',
+                  position: 'absolute', left: '-22px', top: '14px',
+                  width: '10px', height: '10px', borderRadius: '50%',
+                  border: `2px solid ${routeMeta.color}`,
+                  background: (isFirst || isLast) ? routeMeta.color : 'transparent',
+                  zIndex: 1,
+                  boxShadow: isWatched ? `0 0 8px var(--color-warning)` : 'none',
                 }} />
-              </div>
-            </div>
 
-            {/* Ticket Estimate */}
-            <div style={{
-              width: '120px', padding: '16px', borderRadius: '16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
-            }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', textAlign: 'center' }}>
-                {language === 'en' ? 'Est. Ticket' : 'டிக்கெட்'}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <p style={{
+                      fontSize: '0.9rem', fontWeight: isSelected ? 700 : 500,
+                      color: 'var(--color-text-primary)', margin: 0,
+                    }}>
+                      {stop}
+                      {isWatched && <Eye size={12} style={{ marginLeft: '6px', verticalAlign: 'middle', color: 'var(--color-warning)' }} />}
+                    </p>
+                    <p style={{
+                      fontSize: '0.75rem', color: 'var(--color-text-muted)',
+                      margin: '2px 0 0', fontFamily: 'var(--font-data)',
+                    }}>
+                      Stop {index + 1} of {routeStops.length} — ~{etaFromStart} min from start
+                    </p>
+                  </div>
+                  <span style={{
+                    fontSize: '0.8rem', fontWeight: 600,
+                    fontFamily: 'var(--font-data)',
+                    color: routeMeta.color,
+                    flexShrink: 0,
+                  }}>
+                    +{nextBusMin}min
+                  </span>
+                </div>
               </div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent-green)' }}>
-                ₹{5 + Math.min(15, stopsAway * 2)}
-              </div>
-            </div>
-          </div>
+            );
+          })}
+        </div>
 
-          {/* Crowding */}
-          {selectedBusObj && (
-            <div style={{
-              padding: '16px', borderRadius: '14px', background: '#1E293B',
-              marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px',
-            }}>
-              <div style={{
-                width: '12px', height: '12px', borderRadius: '50%',
-                background: selectedBusObj.crowding === 'high' ? '#EF4444'
-                  : selectedBusObj.crowding === 'medium' ? '#F59E0B' : '#22C55E',
-              }} />
-              <span style={{ color: '#F8FAFC', fontSize: '0.9rem' }}>
-                {language === 'en' ? 'Crowding' : 'நெரிசல்'}: {selectedBusObj.crowding || 'low'}
-              </span>
-            </div>
-          )}
+        {/* ── Watch a Stop ── */}
+        <div style={{
+          padding: '20px', background: 'var(--color-bg-panel)',
+          borderRadius: '12px', border: '1px solid var(--color-border)',
+          marginBottom: '28px',
+        }}>
+          <p style={{
+            fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)',
+            fontFamily: 'var(--font-data)', letterSpacing: '1.5px', marginBottom: '14px',
+          }}>
+            GET NOTIFIED WHEN BUS ARRIVES
+          </p>
 
-          {/* Stop button */}
-          <button
-            onClick={stopWatching}
+          <select
+            value={selectedStopIdx !== null ? selectedStopIdx : ''}
+            onChange={e => setSelectedStopIdx(e.target.value !== '' ? parseInt(e.target.value) : null)}
             style={{
-              width: '100%', padding: '14px', borderRadius: '14px',
-              border: '1px solid #EF4444', background: 'transparent',
-              color: '#EF4444', fontSize: '1rem', fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+              width: '100%', padding: '10px 12px',
+              background: 'var(--color-bg-base)', border: '1px solid var(--color-border)',
+              borderRadius: '8px', color: 'var(--color-text-primary)',
+              fontSize: '0.9rem', marginBottom: '12px', outline: 'none',
             }}
           >
-            {language === 'en' ? '⏹ Stop Watching' : '⏹ கண்காணிப்பை நிறுத்து'}
+            <option value="">Select a stop...</option>
+            {routeStops.map((s, i) => (
+              <option key={i} value={i}>{s}</option>
+            ))}
+          </select>
+
+          {/* Alert distance radio buttons */}
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
+            {['400m away', 'At the stop'].map(opt => (
+              <label key={opt} style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                cursor: 'pointer', fontSize: '0.85rem',
+                color: alertDist === opt ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              }}>
+                <input
+                  type="radio" name="alertDist"
+                  checked={alertDist === opt}
+                  onChange={() => setAlertDist(opt)}
+                  style={{ accentColor: 'var(--color-accent)' }}
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+
+          <button
+            onClick={handleWatchStop}
+            disabled={selectedStopIdx === null}
+            style={{
+              width: '100%', padding: '12px', borderRadius: '8px',
+              border: selectedStopIdx !== null ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+              background: 'transparent',
+              color: selectedStopIdx !== null ? 'var(--color-accent)' : 'var(--color-text-muted)',
+              fontSize: '0.9rem', fontWeight: 700,
+              cursor: selectedStopIdx !== null ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              transition: 'all 0.2s',
+            }}
+          >
+            <Bell size={16} />
+            WATCH STOP
           </button>
+
+          {watchedStopLocal && watchedStopLocal.route === selectedRoute && (
+            <div style={{
+              marginTop: '12px', padding: '10px',
+              background: 'rgba(0,229,160,0.08)', borderRadius: '6px',
+              border: '1px solid rgba(0,229,160,0.2)',
+              fontSize: '0.8rem', color: 'var(--color-success)',
+            }}>
+              Watching {watchedStopLocal.stop} on Route {watchedStopLocal.route}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* ── Active Buses for This Route ── */}
+        <div>
+          <p style={{
+            fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)',
+            fontFamily: 'var(--font-data)', letterSpacing: '1.5px', marginBottom: '14px',
+          }}>
+            ACTIVE BUSES — ROUTE {selectedRoute}
+          </p>
+
+          {routeBuses.length === 0 && (
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+              No active buses on this route
+            </p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {routeBuses.map(bus => (
+              <div
+                key={bus.id}
+                style={{
+                  padding: '16px', background: 'var(--color-bg-panel)',
+                  borderRadius: '12px',
+                  border: bus.isGhost
+                    ? '1px solid var(--color-ghost-pulse, #FF6B35)'
+                    : '1px solid var(--color-border)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+                    {bus.id}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                    {bus.speed_kmh} km/h
+                  </span>
+                  <span style={{
+                    fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px',
+                    background: bus.crowding === 'high' ? 'rgba(255,69,96,0.1)' : bus.crowding === 'medium' ? 'rgba(255,184,0,0.1)' : 'rgba(0,229,160,0.1)',
+                    color: bus.crowding === 'high' ? 'var(--color-danger)' : bus.crowding === 'medium' ? 'var(--color-warning)' : 'var(--color-success)',
+                    fontWeight: 600, textTransform: 'uppercase',
+                  }}>
+                    {bus.crowding}
+                  </span>
+                  {bus.isGhost && (
+                    <span style={{
+                      fontSize: '0.65rem', fontWeight: 700,
+                      color: 'var(--color-ghost-pulse, #FF6B35)',
+                      background: 'rgba(255,107,53,0.1)',
+                      padding: '2px 8px', borderRadius: '4px',
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                    }}>
+                      <Radio size={10} /> GPS RECOVERING
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => { if (onTrackBus) onTrackBus(bus.id); }}
+                  style={{
+                    padding: '6px 14px', borderRadius: '6px', cursor: 'pointer',
+                    border: '1px solid var(--color-border)', background: 'transparent',
+                    color: 'var(--color-text-primary)', fontSize: '0.78rem', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s',
+                  }}
+                  onMouseOver={e => { e.currentTarget.style.borderColor = routeMeta.color; e.currentTarget.style.color = routeMeta.color; }}
+                  onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}
+                >
+                  <Navigation size={12} /> TRACK ON MAP
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -20,6 +20,10 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 _ROUTE_TERMINI = {
     "19":   {"lat": 13.0338, "lon": 80.2326, "name": "T. Nagar"},
     "102X": {"lat": 13.0827, "lon": 80.2707, "name": "Broadway"},
+    "515":  {"lat": 12.6179, "lon": 80.1927, "name": "Mamallapuram"},
+    "21C":  {"lat": 12.9953, "lon": 80.2538, "name": "Adyar"},
+    "70":   {"lat": 13.1017, "lon": 80.1611, "name": "Ambattur"},
+    "47A":  {"lat": 12.9560, "lon": 80.1435, "name": "Chromepet"},
 }
 
 # ── 1-HOUR PROTOTYPE STATE MANAGEMENT ──
@@ -30,12 +34,23 @@ _LAST_GHOST_EVENT: Optional[dict] = None
 # Pre-populate state so the map isn't empty initially
 _ROUTES = [
     {"id": "19",   "name": "Thiruporur → T. Nagar",  "stops": 13},
-    {"id": "102X", "name": "Thiruporur → Broadway",  "stops": 15},
+    {"id": "102X", "name": "Kelambakkam → Broadway",  "stops": 15},
+    {"id": "515",  "name": "Tambaram → Mamallapuram",  "stops": 20},
+    {"id": "21C",  "name": "Koyambedu → Adyar",  "stops": 14},
+    {"id": "70",   "name": "Central → Ambattur",  "stops": 18},
+    {"id": "47A",  "name": "T Nagar → Chromepet",  "stops": 16},
 ]
 
 _INITIAL_SEEDS = [
-    {"trip":  "MTC-19-001",   "route": "19",   "lat": 12.7260, "lng": 80.1893, "name": "Thiruporur",   "hw_score": 0.95, "speed": 35.0, "is_ghost": False},
-    {"trip":  "MTC-102X-002", "route": "102X", "lat": 12.7260, "lng": 80.1893, "name": "Thiruporur",   "hw_score": 0.93, "speed": 38.0, "is_ghost": False},
+    {"trip":  "BUS_019_001",  "route": "19",   "lat": 12.9415, "lng": 80.1511, "name": "Thiruporur", "hw_score": 0.95, "speed": 35.0, "is_ghost": False, "crowding": "low"},
+    {"trip":  "BUS_102X_001", "route": "102X", "lat": 13.0720, "lng": 80.2018, "name": "Kelambakkam", "hw_score": 0.93, "speed": 38.0, "is_ghost": False, "crowding": "high"},
+    {"trip":  "BUS_515_001",  "route": "515",  "lat": 12.9378, "lng": 80.1135, "name": "Tambaram", "hw_score": 0.88, "speed": 40.0, "is_ghost": False, "crowding": "medium"},
+    {"trip":  "BUS_21C_001",  "route": "21C",  "lat": 13.0754, "lng": 80.1987, "name": "Koyambedu", "hw_score": 0.87, "speed": 32.0, "is_ghost": False, "crowding": "medium"},
+    {"trip":  "BUS_21C_002",  "route": "21C",  "lat": 13.0526, "lng": 80.2104, "name": "Vadapalani", "hw_score": 0.91, "speed": 34.0, "is_ghost": False, "crowding": "low"},
+    {"trip":  "BUS_070_001",  "route": "70",   "lat": 13.0794, "lng": 80.2747, "name": "Central", "hw_score": 0.15, "speed": 0.0, "is_ghost": True, "crowding": "high"},
+    {"trip":  "BUS_070_002",  "route": "70",   "lat": 13.1220, "lng": 80.2403, "name": "Perambur", "hw_score": 0.79, "speed": 28.0, "is_ghost": False, "crowding": "medium"},
+    {"trip":  "BUS_47A_001",  "route": "47A",  "lat": 12.9517, "lng": 80.1437, "name": "T Nagar", "hw_score": 0.93, "speed": 42.0, "is_ghost": False, "crowding": "low"},
+    {"trip":  "BUS_47A_002",  "route": "47A",  "lat": 13.0110, "lng": 80.2209, "name": "Guindy", "hw_score": 0.62, "speed": 25.0, "is_ghost": False, "crowding": "medium"},
 ]
 
 for seed in _INITIAL_SEEDS:
@@ -74,6 +89,7 @@ for seed in _INITIAL_SEEDS:
         "near": seed["name"],
         "speed": seed["speed"],
         "passenger_count": random.randint(15, 60),
+        "crowding": seed.get("crowding", "medium"),
         "hw_score": seed["hw_score"],
         "is_ghost": seed["is_ghost"],
         "status": "ghost_recovered" if seed["is_ghost"] else "active",

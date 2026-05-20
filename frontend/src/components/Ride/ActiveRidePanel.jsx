@@ -2,6 +2,7 @@
 // The status machine UI. Every phase has a distinct visual state.
 // This is the component that makes or breaks the UX demo.
 import React, { useState } from 'react';
+import { CheckCircle } from 'lucide-react';
 import { ridesAPI } from '../../services/api';
 import { useRideStore } from '../../store/rideStore';
 import { useRideSocket } from '../../hooks/useRideSocket';
@@ -32,7 +33,7 @@ const PHASE_CONFIG = {
     label:    'Ride complete!',
     subtext:  'Hope you enjoyed the ride',
     color:    'text-green-400',
-    icon:     '✅',
+    icon:     <CheckCircle size={24} />,
     pulse:    false,
   },
   cancelled: {

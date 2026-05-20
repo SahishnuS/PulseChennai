@@ -184,6 +184,7 @@ from api.routes.ai import router as ai_router
 from api.routes.eta import router as eta_router
 from api.routes.polylines import router as polylines_router
 from api.routes.h3_demand import router as h3_demand_router
+from api.routes.chat import router as chat_router
 from app.routers.passengers import router as passengers_router
 from api.dashboard_routes import router as dashboard_router
 
@@ -197,6 +198,7 @@ app.include_router(ai_router)
 app.include_router(eta_router)
 app.include_router(polylines_router)
 app.include_router(h3_demand_router)
+app.include_router(chat_router)
 app.include_router(passengers_router)
 app.include_router(dashboard_router)
 

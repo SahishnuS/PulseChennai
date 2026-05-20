@@ -2,6 +2,7 @@
 // The entire driver-side experience.
 // Driver connects on mount, handles incoming requests, full ride lifecycle controls.
 import React, { useState, useCallback, useEffect } from 'react';
+import { CheckCircle } from 'lucide-react';
 import { ridesAPI, matchAPI } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { useDriverSocket } from '../../hooks/useRideSocket';
@@ -234,7 +235,9 @@ export default function DriverDashboard() {
 
             {activeRide.status === 'completed' && (
               <div className="text-center py-2">
-                <p className="text-green-400 font-bold">✅ Ride Completed!</p>
+                <p className="text-green-400 font-bold flex items-center justify-center gap-2">
+                  <CheckCircle size={16} /> Ride Completed!
+                </p>
                 <p className="text-gray-500 text-sm">Final: ₹{activeRide.final_fare}</p>
               </div>
             )}

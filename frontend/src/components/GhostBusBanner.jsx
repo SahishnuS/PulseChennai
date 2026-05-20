@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { WifiOff, CheckCircle } from 'lucide-react';
 import { API_BASE } from '../lib/supabase';
 
 export default function GhostBusBanner({ language }) {
@@ -60,26 +61,31 @@ export default function GhostBusBanner({ language }) {
     <div
       className="slide-in"
       style={{
-        padding: '10px 16px',
-        background: isGhost
-          ? 'linear-gradient(90deg, #DC2626, #EF4444)'
-          : 'linear-gradient(90deg, #16A34A, #22C55E)',
-        color: 'white',
+        padding: '12px 16px',
+        background: isGhost ? 'rgba(255, 69, 96, 0.10)' : 'rgba(0, 229, 160, 0.10)',
+        borderTop: `3px solid ${isGhost ? '#FF4560' : '#00E5A0'}`,
+        color: isGhost ? '#FF4560' : '#00E5A0',
         fontSize: '0.85rem',
         fontWeight: 600,
         textAlign: 'center',
         zIndex: 999,
         flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px'
       }}
     >
+      {isGhost ? <WifiOff size="1.1em" color="currentColor" /> : <CheckCircle size="1.1em" color="currentColor" />}
+      
       {isGhost ? (
         language === 'ta'
-          ? `⚠ பேருந்து ${banner.route} — சமிக்ஞை இல்லை. நிலையை மதிப்பிடுகிறோம்.`
-          : `⚠ BUS ${banner.route} — Signal Lost. Estimating position via dead reckoning.`
+          ? `பேருந்து ${banner.route} — சமிக்ஞை இல்லை. நிலையை மதிப்பிடுகிறோம்.`
+          : `BUS ${banner.route} — Signal Lost. Estimating position via dead reckoning.`
       ) : (
         language === 'ta'
-          ? `✓ பேருந்து ${banner.route} — சமிக்ஞை மீட்டெடுக்கப்பட்டது. நேரடி கண்காணிப்பு தொடர்கிறது.`
-          : `✓ BUS ${banner.route} — Signal restored. Live tracking resumed.`
+          ? `பேருந்து ${banner.route} — சமிக்ஞை மீட்டெடுக்கப்பட்டது. நேரடி கண்காணிப்பு தொடர்கிறது.`
+          : `BUS ${banner.route} — Signal restored. Live tracking resumed.`
       )}
     </div>
   );
