@@ -31,10 +31,9 @@ Analyze the provided live context (bus locations, alerts, crowding, ticket price
 Do not hallucinate data. If a bus isn't in the context, say you don't have real-time data for it.
 
 Available routes:
-- 23C: Thiruvanmiyur → T Nagar
-- 47A: Anna Nagar → Koyambedu
-- 21B: Chennai Central → Tambaram
-- M70: Adyar Signal → Chrompet"""
+- 19: Thiruporur → T Nagar
+- 102X: Kelambakkam → Broadway
+- 515: Tambaram → Mamallapuram"""
 
 
 @router.post("/ai/query")
@@ -50,7 +49,8 @@ async def ai_query(req: AIQueryRequest):
         from infrastructure.supabase_client import get_supabase
         client = get_supabase()
         if client:
-            buses = client.table("buses").select("*").execute().data
+            raw_buses = client.table("buses").select("*").execute().data or []
+            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
             alerts = client.table("alerts").select("*").order("created_at", desc=True).limit(5).execute().data
             live_context = {
                 "active_buses": buses,
@@ -102,7 +102,7 @@ def _template_response(message: str, language: str, context: Optional[dict]) -> 
 
     if language == "ta":
         if "t நகர" in msg_lower or "t nagar" in msg_lower:
-            return "T நகரம் செல்ல 23C பேருந்தை பயன்படுத்தவும். திருவான்மியூர் முனையத்தில் இருந்து புறப்படுகிறது."
+            return "T நகரம் செல்ல 19 பேருந்தை பயன்படுத்தவும். திருப்போரூர் முனையத்தில் இருந்து புறப்படுகிறது."
         if "நெரிசல" in msg_lower or "crowded" in msg_lower:
             return "தற்போதைய நெரிசல் நிலையை சரிபார்க்கிறேன். வரைபடத்தில் பேருந்து குறிகளைப் பாருங்கள்."
         if "எப்போது" in msg_lower or "when" in msg_lower:
@@ -110,11 +110,11 @@ def _template_response(message: str, language: str, context: Optional[dict]) -> 
         return "மன்னிக்கவும், உங்கள் கேள்வியை புரிந்து கொள்ள முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
     else:
         if "t nagar" in msg_lower:
-            return "Take bus 23C to reach T Nagar. It departs from Thiruvanmiyur Terminus."
-        if "koyambedu" in msg_lower:
-            return "Take bus 47A to reach Koyambedu CMBT. It starts from Anna Nagar Tower."
-        if "tambaram" in msg_lower or "central" in msg_lower:
-            return "Take bus 21B which runs between Chennai Central and Tambaram."
+            return "Take bus 19 to reach T Nagar. It departs from Thiruporur."
+        if "broadway" in msg_lower:
+            return "Take bus 102X to reach Broadway. It starts from Kelambakkam."
+        if "tambaram" in msg_lower or "mamallapuram" in msg_lower:
+            return "Take bus 515 which runs between Tambaram and Mamallapuram."
         if "crowded" in msg_lower or "crowd" in msg_lower:
             return "Check the bus markers on the map — green dot means low crowd, yellow is medium, red is high."
         if "ghost" in msg_lower:

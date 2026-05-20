@@ -51,7 +51,7 @@ _ROUTE_STOPS = {
 
 
 def _get_api_key() -> str:
-    return os.getenv("TOMTOM_API_KEY", "")
+    return os.getenv("TOMTOM_API_KEY") or os.getenv("VITE_TOMTOM_API_KEY", "")
 
 
 def _find_next_stop(bus_lat: float, bus_lon: float, route_id: str) -> Optional[dict]:

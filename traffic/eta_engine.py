@@ -4,6 +4,7 @@ ETA Engine — Pulse-Chennai
 Calculates Estimated Time of Arrival between two points using
 multiple methods in priority order:
 
+  0. **ML Ensemble** (XGB+LGB on uber_data features + TomTom traffic)
   1. TomTom Routing API (live traffic, most accurate)
   2. TomTom Geocode + Routing (when text addresses are given)
   3. Haversine + Traffic Flow Multiplier (fast, offline fallback)
@@ -60,6 +61,11 @@ class ETAResult:
     confidence:          float           # 0.0–1.0
     timestamp:           str
     source_data:         str             # API label for UI
+    # ── ML prediction fields (added for Method 0) ─────────────────────────────
+    ml_prediction_seconds: Optional[float] = None    # ML ensemble raw ETA
+    ml_confidence:         Optional[float] = None    # ML model confidence 0-1
+    ml_method:             Optional[str]   = None    # Which ML path was used
+    ml_traffic_factor:     Optional[float] = None    # Real-time traffic multiplier
 
     def eta_live_minutes(self) -> Optional[float]:
         return round(self.eta_live_seconds / 60, 1) if self.eta_live_seconds else None
@@ -70,15 +76,23 @@ class ETAResult:
     def eta_no_traffic_minutes(self) -> Optional[float]:
         return round(self.eta_no_traffic_seconds / 60, 1) if self.eta_no_traffic_seconds else None
 
+    def ml_prediction_minutes(self) -> Optional[float]:
+        """ML ensemble prediction in minutes."""
+        return round(self.ml_prediction_seconds / 60, 1) if self.ml_prediction_seconds else None
+
     def best_eta_minutes(self) -> Optional[float]:
-        """Returns the most accurate ETA in minutes."""
-        s = self.eta_live_seconds or self.eta_historic_seconds or self.eta_fallback_seconds
-        return round(s / 60, 1) if s else None
+        """Returns the most accurate ETA in minutes (ML > live > historic > fallback)."""
+        s = (self.ml_prediction_seconds or self.eta_live_seconds
+             or self.eta_historic_seconds or self.eta_fallback_seconds)
+        if s is not None:
+            return round(float(s) / 60, 1)
+        return None
 
     def arrival_time(self) -> Optional[str]:
-        secs = self.eta_live_seconds or self.eta_fallback_seconds
+        secs = (self.ml_prediction_seconds or self.eta_live_seconds
+                or self.eta_fallback_seconds)
         if secs:
-            arrival = datetime.now() + timedelta(seconds=secs)
+            arrival = datetime.now() + timedelta(seconds=float(secs))
             return arrival.strftime("%H:%M")
         return None
 
@@ -87,6 +101,7 @@ class ETAResult:
         d["eta_live_minutes"]       = self.eta_live_minutes()
         d["eta_historic_minutes"]   = self.eta_historic_minutes()
         d["eta_no_traffic_minutes"] = self.eta_no_traffic_minutes()
+        d["ml_prediction_minutes"]  = self.ml_prediction_minutes()
         d["best_eta_minutes"]       = self.best_eta_minutes()
         d["arrival_time"]           = self.arrival_time()
         d["distance_km"]            = round(self.distance_meters / 1000, 2) if self.distance_meters else None
@@ -112,14 +127,37 @@ async def calculate_eta(
     dst : str or (lat, lon)
         Destination — text address or coordinate tuple.
     api_key : str, optional
-        TomTom API key. Falls back to env var TOMTOM_API_KEY.
+        TomTom API key. Falls back to env var VITE_TOMTOM_API_KEY.
     """
     import os
-    key = api_key or os.getenv("TOMTOM_API_KEY", "")
+    key = api_key or os.getenv("VITE_TOMTOM_API_KEY", "")
 
     # ── Resolve coordinates (geocode if text) ─────────────────────────────────
     src_lat, src_lon, src_label = await _resolve(src, key)
     dst_lat, dst_lon, dst_label = await _resolve(dst, key)
+
+    # ── ML prediction (populated on all results when available) ───────────────
+    ml_pred_seconds: Optional[float] = None
+    ml_confidence:   Optional[float] = None
+    ml_method:       Optional[str]   = None
+    ml_traffic_factor: Optional[float] = None
+
+    # ── Method 0: ML Ensemble (highest priority) ─────────────────────────────
+    if src_lat and dst_lat:
+        try:
+            ml_result = await _ml_ensemble_eta(
+                src_lat, src_lon, dst_lat, dst_lon,
+                src_label, dst_label, key,
+            )
+            if ml_result:
+                # Populate ML fields for enriching all downstream results too
+                ml_pred_seconds = ml_result.ml_prediction_seconds
+                ml_confidence   = ml_result.ml_confidence
+                ml_method       = ml_result.ml_method
+                ml_traffic_factor = ml_result.ml_traffic_factor
+                return ml_result
+        except Exception as e:
+            logger.warning(f"ML Ensemble ETA failed: {e}. Falling to TomTom.")
 
     # ── Method 1: TomTom Routing API (live traffic) ───────────────────────────
     if key and src_lat and dst_lat:
@@ -129,6 +167,11 @@ async def calculate_eta(
                 src_label, dst_label, key
             )
             if result:
+                # Attach any ML prediction we computed before failure
+                result.ml_prediction_seconds = ml_pred_seconds
+                result.ml_confidence = ml_confidence
+                result.ml_method = ml_method
+                result.ml_traffic_factor = ml_traffic_factor
                 return result
         except Exception as e:
             logger.warning(f"TomTom Routing API failed: {e}. Falling back.")
@@ -137,12 +180,21 @@ async def calculate_eta(
     if src_lat and dst_lat:
         try:
             result = await _haversine_flow_eta(src_lat, src_lon, dst_lat, dst_lon, src_label, dst_label)
+            result.ml_prediction_seconds = ml_pred_seconds
+            result.ml_confidence = ml_confidence
+            result.ml_method = ml_method
+            result.ml_traffic_factor = ml_traffic_factor
             return result
         except Exception as e:
             logger.warning(f"Haversine fallback failed: {e}")
 
     # ── Method 3: Pure historical pattern (last resort) ───────────────────────
-    return _historical_eta(src_lat or 0, src_lon or 0, dst_lat or 0, dst_lon or 0, src_label, dst_label)
+    result = _historical_eta(src_lat or 0, src_lon or 0, dst_lat or 0, dst_lon or 0, src_label, dst_label)
+    result.ml_prediction_seconds = ml_pred_seconds
+    result.ml_confidence = ml_confidence
+    result.ml_method = ml_method
+    result.ml_traffic_factor = ml_traffic_factor
+    return result
 
 
 async def calculate_eta_for_bus(
@@ -162,6 +214,74 @@ async def calculate_eta_for_bus(
         src=(bus_lat, bus_lon),
         dst=(dst_lat, dst_lon),
         api_key=api_key,
+    )
+
+
+# ── ML Ensemble helper ────────────────────────────────────────────────────────
+
+async def _ml_ensemble_eta(
+    src_lat: float, src_lon: float,
+    dst_lat: float, dst_lon: float,
+    src_label: str, dst_label: str,
+    api_key: str,
+) -> Optional[ETAResult]:
+    """
+    Method 0: ML Ensemble prediction using pre-trained XGB+LGB models.
+
+    Runs the prediction in a thread pool to avoid blocking the event loop
+    (model inference + historical data lookups are CPU-bound).
+    """
+    import asyncio
+    from traffic.ml_eta_predictor import get_predictor
+
+    predictor = get_predictor()
+
+    # Run CPU-bound ML prediction in a thread pool
+    loop = asyncio.get_event_loop()
+    ml_result = await loop.run_in_executor(
+        None,
+        lambda: predictor.predict(
+            src_lat=src_lat,
+            src_lon=src_lon,
+            dst_lat=dst_lat,
+            dst_lon=dst_lon,
+        ),
+    )
+
+    if not ml_result or ml_result.get("confidence", 0) < 0.4:
+        logger.info("ML prediction confidence too low (%.2f), skipping.",
+                    ml_result.get("confidence", 0) if ml_result else 0)
+        return None
+
+    eta_s = ml_result["eta_seconds"]
+    distance_km = ml_result.get("distance_km", 0)
+    distance_m = int(distance_km * 1000 * 1.35) if distance_km else None  # road correction
+
+    return ETAResult(
+        source_label          = src_label,
+        dest_label            = dst_label,
+        src_lat               = src_lat,
+        src_lon               = src_lon,
+        dst_lat               = dst_lat,
+        dst_lon               = dst_lon,
+        eta_live_seconds      = None,
+        eta_historic_seconds  = (
+            int(ml_result["historical_eta_seconds"])
+            if ml_result.get("historical_eta_seconds") else None
+        ),
+        eta_no_traffic_seconds= None,
+        eta_fallback_seconds  = int(eta_s),
+        distance_meters       = distance_m,
+        method_used           = ml_result["method"],
+        traffic_delay_seconds = None,
+        confidence            = ml_result["confidence"],
+        timestamp             = datetime.now().isoformat(),
+        source_data           = "ML Ensemble (XGB+LGB+uber_data+TomTom)",
+        # ML-specific fields
+        ml_prediction_seconds = round(eta_s, 1),
+        ml_confidence         = round(ml_result["confidence"], 3),
+        ml_method             = ml_result["method"],
+        ml_traffic_factor     = ml_result.get("traffic_factor"),
     )
 
 

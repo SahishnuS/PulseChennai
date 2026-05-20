@@ -4,13 +4,12 @@ import MapView from './views/MapView';
 import AssistantView from './views/AssistantView';
 import JourneyView from './views/JourneyView';
 import GhostBusBanner from './components/GhostBusBanner';
-import DemoMode from './components/DemoMode';
 import './index.css';
 
 const TABS = [
   { id: 'map', label: '🗺 Map', labelTa: '🗺 வரைபடம்' },
   { id: 'assistant', label: '🤖 Assistant', labelTa: '🤖 உதவியாளர்' },
-  { id: 'journey', label: '🎯 Journey', labelTa: '🎯 பயணம்' },
+  { id: 'journey', label: '🚌 Routes', labelTa: '🚌 வழிகள்' },
 ];
 
 export default function App() {
@@ -86,14 +85,17 @@ export default function App() {
           </button>
           
           <button 
-            className={`sidebar-nav-item ${activeTab === 'journey' ? 'active' : ''}`}
-            onClick={() => setActiveTab('journey')}
+            className="sidebar-nav-item"
+            onClick={() => showToast(language === 'en' ? 'Tickets directory coming soon' : 'டிக்கெட்டுகள் விரைவில் வரும்')}
           >
             <span style={{ fontSize: '1.1rem' }}>🎫</span>
             {language === 'en' ? 'My Tickets' : 'டிக்கெட்டுகள்'}
           </button>
 
-          <button className="sidebar-nav-item" onClick={() => showToast(language === 'en' ? 'Routes directory coming soon' : 'வழிகள் விரைவில் வரும்')}>
+          <button 
+            className={`sidebar-nav-item ${activeTab === 'journey' ? 'active' : ''}`}
+            onClick={() => setActiveTab('journey')}
+          >
             <span style={{ fontSize: '1.1rem' }}>🚌</span>
             {language === 'en' ? 'Routes' : 'வழிகள்'}
           </button>
@@ -169,11 +171,7 @@ export default function App() {
           <GhostBusBanner language={language} />
         </div>
 
-        {/* ── Demo Mode ── */}
-        <DemoMode
-          language={language}
-          setActiveTab={setActiveTab}
-        />
+
 
         {/* ── View Content ── */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>

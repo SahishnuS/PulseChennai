@@ -1,7 +1,7 @@
 """
 Pulse-Chennai Demo Simulator (Supabase Edition)
 ==================================================
-Simulates 6 MTC buses on real Chennai routes.
+Simulates 3 MTC buses on real Chennai routes (19, 102X, 515).
 Writes directly to Supabase — NO Kafka dependency.
 """
 
@@ -23,81 +23,52 @@ try:
 except ImportError:
     pass
 
-STOPS_23C = [
-    (12.9824, 80.2588), (12.9831, 80.2541), (12.9799, 80.2576), (12.9836, 80.2463),
-    (12.9901, 80.2378), (12.9986, 80.2369), (13.0182, 80.2213), (13.0365, 80.2129),
-    (13.0418, 80.2341)
+# Ensure parent directory is in sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from traffic.routing_service import get_route_path
+
+STOPS_19 = [
+    (12.7275, 80.1989), (12.7915, 80.2185), (12.8361, 80.2199), (12.8988, 80.2281),
+    (12.9824, 80.2588), (13.0182, 80.2213), (13.0418, 80.2341)
 ]
 
-STOPS_47A = [
-    (13.0891, 80.2101), (13.0842, 80.2089), (13.0778, 80.2023), 
-    (13.0722, 80.1963), (13.0698, 80.1944)
+STOPS_102X = [
+    (12.7915, 80.2185), (12.8361, 80.2199), (12.8988, 80.2281), (12.9379, 80.2366),
+    (12.9649, 80.2450), (13.0012, 80.2565), (13.0326, 80.2783), (13.0886, 80.2872)
 ]
 
-STOPS_21B = [
-    (13.0827, 80.2756), (13.0792, 80.2731), (13.0198, 80.2234), 
-    (12.9516, 80.1430), (12.9249, 80.1000)
-]
-
-STOPS_M70 = [
-    (12.9799, 80.2576), (12.9986, 80.2369), (13.0182, 80.2213), 
-    (13.0066, 80.2206), (12.9516, 80.1430)
+STOPS_515 = [
+    (12.9249, 80.1000), (12.9048, 80.0894), (12.8872, 80.0832), (12.8344, 80.1500),
+    (12.7915, 80.2185), (12.7275, 80.1989), (12.6208, 80.1945)
 ]
 
 BUSES = [
   {
-    "id": "BUS_23C_001",
-    "route": "23C",
-    "stops": STOPS_23C,
-    "crowding_pattern": ["low", "medium", "medium", "high", "high", "medium", "low", "low", "low"],
+    "id": "BUS_19_001",
+    "route": "19",
+    "stops": STOPS_19,
+    "crowding_pattern": ["low", "low", "medium", "high", "high", "medium", "low"],
     "ghost_at_index": 2,
-    "speed_kmh": 16,
+    "speed_kmh": 22,
     "start_offset": 0
   },
   {
-    "id": "BUS_23C_002",
-    "route": "23C", 
-    "stops": STOPS_23C,
-    "start_offset": 4,
-    "crowding_pattern": ["medium", "high", "high", "medium", "low", "low", "low", "low", "low"],
-    "ghost_at_index": None,
-    "speed_kmh": 18
-  },
-  {
-    "id": "BUS_47A_001",
-    "route": "47A",
-    "stops": STOPS_47A,
-    "crowding_pattern": ["low", "low", "medium", "high", "high"],
+    "id": "BUS_102X_001",
+    "route": "102X",
+    "stops": STOPS_102X,
+    "crowding_pattern": ["low", "low", "medium", "high", "high", "high", "medium", "low"],
     "skip_stop_index": 2,
     "ghost_at_index": None,
-    "speed_kmh": 14,
-    "start_offset": 0
-  },
-  {
-    "id": "BUS_21B_001",
-    "route": "21B",
-    "stops": STOPS_21B,
-    "crowding_pattern": ["high", "high", "medium", "medium", "low"],
-    "ghost_at_index": None,
-    "speed_kmh": 20,
-    "start_offset": 0
-  },
-  {
-    "id": "BUS_21B_002",
-    "route": "21B",
-    "stops": list(reversed(STOPS_21B)),
-    "crowding_pattern": ["low", "medium", "medium", "high", "high"],
-    "ghost_at_index": None,
-    "speed_kmh": 17,
+    "speed_kmh": 26,
     "start_offset": 1
   },
   {
-    "id": "BUS_M70_001",
-    "route": "M70",
-    "stops": STOPS_M70,
-    "crowding_pattern": ["low", "low", "medium", "medium", "high"],
+    "id": "BUS_515_001",
+    "route": "515",
+    "stops": STOPS_515,
+    "crowding_pattern": ["low", "medium", "medium", "low", "low", "low", "low"],
     "ghost_at_index": None,
-    "speed_kmh": 22,
+    "speed_kmh": 20,
     "start_offset": 0
   }
 ]
@@ -123,6 +94,20 @@ def interpolate_position(waypoints, progress):
     return lat, lng, segment
 
 
+def get_route_length(waypoints):
+    """Calculate the total length of the waypoint path in meters using distance approximation."""
+    total = 0.0
+    for i in range(len(waypoints) - 1):
+        lat1, lng1 = waypoints[i]
+        lat2, lng2 = waypoints[i+1]
+        # Quick degrees to meters calculation (1 degree lat ~= 111km, 1 degree lng ~= 111km * cos(lat))
+        # Valid for Chennai latitude
+        dy = (lat2 - lat1) * 111132.0
+        dx = (lng2 - lng1) * 111132.0 * math.cos(math.radians(lat1))
+        total += math.sqrt(dx*dx + dy*dy)
+    return max(total, 1000.0)
+
+
 def get_supabase():
     from infrastructure.supabase_client import get_supabase as _get
     client = _get()
@@ -136,16 +121,45 @@ async def run_simulation():
     supabase = get_supabase()
 
     logger.info("=" * 60)
-    logger.info("PULSE-CHENNAI DEMO SIMULATOR (6 Buses)")
+    logger.info("PULSE-CHENNAI DEMO SIMULATOR (3 Buses - Road-Aware Edition)")
     logger.info("=" * 60)
+
+    # Initialize Upstash Redis for initialization calls
+    from infrastructure import upstash_redis
+    await upstash_redis.init()
+
+    # Pre-fetch road-aware geometry paths for each bus route
+    bus_paths = {}
+    for bus in BUSES:
+        bus_id = bus["id"]
+        route_id = bus["route"]
+        is_reversed = False
+        
+        logger.info(f"Loading road geometry for {bus_id} ({route_id})")
+        waypoints, stop_indices = await get_route_path(route_id, reversed_direction=is_reversed)
+        
+        bus_paths[bus_id] = {
+            "waypoints": waypoints,
+            "stop_indices": stop_indices,
+            "length_meters": get_route_length(waypoints)
+        }
+        logger.info(f"  Loaded {len(waypoints)} waypoints, path length: {bus_paths[bus_id]['length_meters']:.1f} meters")
 
     # Initialize bus states
     bus_state = {}
     for bus in BUSES:
-        n = len(bus["stops"]) - 1
-        initial_progress = min(1.0, bus.get("start_offset", 0) / max(1, n))
+        bus_id = bus["id"]
+        waypoints = bus_paths[bus_id]["waypoints"]
+        stop_indices = bus_paths[bus_id]["stop_indices"]
         
-        bus_state[bus["id"]] = {
+        # Calculate initial progress fraction based on start_offset
+        original_n = len(bus["stops"]) - 1
+        start_stop = bus.get("start_offset", 0)
+        # Find first index in stop_indices matching start_stop
+        start_wp_idx = next((i for i, s_idx in enumerate(stop_indices) if s_idx >= start_stop), 0)
+        initial_progress = start_wp_idx / max(1, len(waypoints) - 1)
+        
+        bus_state[bus_id] = {
             "progress": initial_progress,
             "direction": 1,
             "is_ghost": False,
@@ -161,12 +175,16 @@ async def run_simulation():
         for bus in BUSES:
             bus_id = bus["id"]
             state = bus_state[bus_id]
-            waypoints = bus["stops"]
+            
+            path_info = bus_paths[bus_id]
+            waypoints = path_info["waypoints"]
+            stop_indices = path_info["stop_indices"]
+            route_length = path_info["length_meters"]
             n = len(waypoints) - 1
 
-            # Advance position
-            route_length_estimate = n * 0.005
-            speed_progress = (bus["speed_kmh"] / 3600 * PING_INTERVAL * 0.00001) / max(route_length_estimate, 0.001)
+            # Advance progress along road geometry
+            step_dist = (bus["speed_kmh"] / 3.6) * PING_INTERVAL
+            speed_progress = step_dist / route_length
             state["progress"] += speed_progress * state["direction"]
 
             # Bounce
@@ -179,7 +197,8 @@ async def run_simulation():
                 state["direction"] = 1
                 state["skip_done"] = False
 
-            lat, lng, stop_index = interpolate_position(waypoints, state["progress"])
+            lat, lng, segment_idx = interpolate_position(waypoints, state["progress"])
+            stop_index = stop_indices[segment_idx]
 
             # Crowding pattern based on stop
             if bus.get("crowding_pattern"):
@@ -196,11 +215,15 @@ async def run_simulation():
                 elif stop_index != bus["ghost_at_index"]:
                     state["is_ghost"] = False
 
-            # Skip stop logic (47A skipping Thirumangalam)
+            # Skip stop logic
             if bus.get("skip_stop_index") is not None:
                 if stop_index == bus["skip_stop_index"] and not state["skip_done"] and state["direction"] == 1:
-                    state["progress"] = min((bus["skip_stop_index"] + 1) / max(1, n) + 0.01, 1.0)
-                    lat, lng, stop_index = interpolate_position(waypoints, state["progress"])
+                    # Find the first waypoint index belonging to the next stop or later
+                    target_stop = bus["skip_stop_index"] + 1
+                    target_wp_idx = next((i for i, s_idx in enumerate(stop_indices) if s_idx >= target_stop), n)
+                    state["progress"] = target_wp_idx / n
+                    lat, lng, segment_idx = interpolate_position(waypoints, state["progress"])
+                    stop_index = stop_indices[segment_idx]
                     state["skip_done"] = True
                     
                     try:
@@ -213,13 +236,13 @@ async def run_simulation():
                     except Exception as e:
                         pass
 
-            # Compute heading
+            # Compute heading based on segment direction
             heading = random.uniform(0, 360)
-            if stop_index < n:
-                next_wp = waypoints[stop_index + 1]
+            if segment_idx < n:
+                next_wp = waypoints[segment_idx + 1]
                 heading = math.degrees(math.atan2(
-                    next_wp[1] - waypoints[stop_index][1],
-                    next_wp[0] - waypoints[stop_index][0]
+                    next_wp[1] - waypoints[segment_idx][1],
+                    next_wp[0] - waypoints[segment_idx][0]
                 )) % 360
 
             speed = bus["speed_kmh"] + random.uniform(-2, 2)

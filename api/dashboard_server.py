@@ -59,7 +59,8 @@ async def _bus_polling_loop():
 
             # Fetch all buses
             result = supabase.table("buses").select("*").execute()
-            buses = result.data if result.data else []
+            raw_buses = result.data if result.data else []
+            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
 
             for bus in buses:
                 bus_id = bus.get("id", "")
@@ -173,20 +174,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Mount routers ──
 from api.routes.ingest import router as ingest_router
 from api.routes.buses import router as buses_router
 from api.routes.health import router as health_router
 from api.routes.stops import router as stops_router
+from api.routes.routes import router as routes_router
 from api.routes.alerts import router as alerts_router
 from api.routes.ai import router as ai_router
+from api.routes.eta import router as eta_router
+from api.dashboard_routes import router as dashboard_router
 
 app.include_router(ingest_router)
 app.include_router(buses_router)
 app.include_router(health_router)
 app.include_router(stops_router)
+app.include_router(routes_router)
 app.include_router(alerts_router)
 app.include_router(ai_router)
+app.include_router(eta_router)
+app.include_router(dashboard_router)
 
 # ── Serve frontend (Vite build output) ──
 _FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")

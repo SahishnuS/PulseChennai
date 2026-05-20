@@ -1,5 +1,9 @@
+import logging
 import requests
 from config import get_settings
+from traffic.ml_eta_predictor import get_predictor
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -29,13 +33,28 @@ def get_optimal_route(start_lat: float, start_lon: float, end_lat: float, end_lo
         osrm_eta_min = route["duration"] / 60.0
         
         # ─────────────────────────────────────────────────────────────────
-        # [PLACEHOLDER] Machine Learning ETA Engine
-        # In a real production system, you would load your cached XGBoost model
-        # and feed it features: [distance_km, hour, day_of_week, start_lat...]
-        # and let it predict the final ETA.
-        # Here we simulate an ML adjustment:
+        # ML ETA Engine — ensemble prediction with traffic correction
         # ─────────────────────────────────────────────────────────────────
-        ml_eta_prediction = round(osrm_eta_min * 1.15, 2)  # Simulated 15% traffic addition
+        try:
+            predictor = get_predictor()
+            ml_result = predictor.predict(
+                src_lat=start_lat,
+                src_lon=start_lon,
+                dst_lat=end_lat,
+                dst_lon=end_lon,
+                current_speed_kmph=None,
+            )
+            ml_eta_prediction = round(ml_result["eta_minutes"], 2)
+            logger.info(
+                "ML ETA: %.2f min (method=%s, confidence=%.3f, OSRM=%.2f min)",
+                ml_eta_prediction,
+                ml_result.get("method", "unknown"),
+                ml_result.get("confidence", 0),
+                osrm_eta_min,
+            )
+        except Exception as ml_err:
+            logger.warning("ML ETA prediction failed, falling back to OSRM×1.15: %s", ml_err)
+            ml_eta_prediction = round(osrm_eta_min * 1.15, 2)
         
         # Route geometry (list of [lon, lat])
         # GeoJSON LineString coordinates are [lon, lat]

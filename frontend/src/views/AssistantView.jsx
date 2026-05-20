@@ -4,12 +4,12 @@ import { API_BASE } from '../lib/supabase';
 const STARTER_PROMPTS = {
   en: [
     'Which bus goes to T Nagar?',
-    'Is bus 23C crowded right now?',
+    'Is bus 19 crowded right now?',
     'Alert me before my stop',
   ],
   ta: [
     'T நகரம் செல்ல எந்த பேருந்து?',
-    '23C இப்போது நெரிசலாக உள்ளதா?',
+    '19 இப்போது நெரிசலாக உள்ளதா?',
     'என் நிறுத்தத்திற்கு முன் எச்சரி',
   ],
 };
@@ -110,7 +110,7 @@ export default function AssistantView({ language }) {
       try {
         const busRes = await fetch(`${API_BASE}/api/buses`);
         const busData = await busRes.json();
-        busContext = { buses: busData.buses, routes: ['23C', '47A', '21B'] };
+        busContext = { buses: busData.buses, routes: ['19', '102X', '515'] };
       } catch (e) { /* ignore */ }
 
       const res = await fetch(`${API_BASE}/api/ai/query`, {

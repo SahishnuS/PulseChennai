@@ -8,9 +8,11 @@ GET /api/metrics — system-wide metrics
 
 import math
 import logging
+import os
 from datetime import datetime
 from fastapi import APIRouter, Query
 from typing import Optional
+from traffic.ml_eta_predictor import get_predictor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Buses"])
@@ -62,7 +64,9 @@ async def get_all_buses():
 
     try:
         result = supabase.table("buses").select("*").execute()
-        buses = result.data if result.data else []
+        raw_buses = result.data if result.data else []
+        # Keep only 19, 102X, and 515
+        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
     except Exception as e:
         logger.warning(f"Failed to fetch buses: {e}")
         buses = []
@@ -86,11 +90,13 @@ async def get_bus(bus_id: str):
     try:
         result = supabase.table("buses").select("*").eq("id", bus_id).execute()
         if result.data and len(result.data) > 0:
-            return {"bus_id": bus_id, **result.data[0]}
+            bus = result.data[0]
+            if bus.get("route") in ["19", "102X", "515"]:
+                return {"bus_id": bus_id, **bus}
     except Exception as e:
         logger.warning(f"Failed to fetch bus {bus_id}: {e}")
 
-    return {"error": f"Bus {bus_id} not found", "bus_id": bus_id}
+    return {"error": f"Bus {bus_id} not found or inactive", "bus_id": bus_id}
 
 
 @router.get("/buses/{bus_id}/eta")
@@ -141,8 +147,29 @@ async def get_bus_eta(
     # Calculate distance
     distance_km = _haversine_km(bus_lat, bus_lng, stop_coords[0], stop_coords[1])
 
-    # Base ETA in minutes
-    base_eta_min = (distance_km / CHENNAI_AVG_SPEED_KMH) * 60
+    # Base ETA in minutes — ML prediction with fallback
+    ml_method = None
+    ml_confidence = None
+    bus_speed = bus.get("speed", None)
+    try:
+        predictor = get_predictor()
+        ml_result = predictor.predict(
+            src_lat=bus_lat,
+            src_lon=bus_lng,
+            dst_lat=stop_coords[0],
+            dst_lon=stop_coords[1],
+            current_speed_kmph=bus_speed,
+        )
+        base_eta_min = ml_result["eta_minutes"]
+        ml_method = ml_result.get("method", "unknown")
+        ml_confidence = ml_result.get("confidence", 0)
+        logger.info(
+            "Bus %s ETA to %s: %.2f min (method=%s, confidence=%.3f)",
+            bus_id, stop_id, base_eta_min, ml_method, ml_confidence,
+        )
+    except Exception as ml_err:
+        logger.warning("ML ETA failed for bus %s, using distance/speed fallback: %s", bus_id, ml_err)
+        base_eta_min = (distance_km / CHENNAI_AVG_SPEED_KMH) * 60
 
     if is_ghost:
         # Ghost bus: wider uncertainty, lower confidence
@@ -169,6 +196,8 @@ async def get_bus_eta(
         "is_ghost": is_ghost,
         "distance_km": round(distance_km, 2),
         "reliability_score": bus.get("reliability_score", 1.0),
+        "ml_method": ml_method,
+        "ml_confidence": ml_confidence,
     }
 
 
@@ -183,7 +212,9 @@ async def get_metrics():
 
     try:
         result = supabase.table("buses").select("*").execute()
-        buses = result.data if result.data else []
+        raw_buses = result.data if result.data else []
+        # Keep only 19, 102X, and 515
+        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
     except Exception:
         buses = []
 

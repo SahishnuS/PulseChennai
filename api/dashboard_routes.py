@@ -6,6 +6,7 @@ Extends the existing main.py with traffic, live feed and metrics endpoints.
 import time
 import random
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
@@ -14,6 +15,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+# Route terminus coordinates for ETA calculations
+_ROUTE_TERMINI = {
+    "19":   {"lat": 13.0338, "lon": 80.2326, "name": "T. Nagar"},
+    "102X": {"lat": 13.0827, "lon": 80.2707, "name": "Broadway"},
+}
 
 # ── 1-HOUR PROTOTYPE STATE MANAGEMENT ──
 # Instead of Kafka + Redis, we use an in-memory dict for the prototype
@@ -32,6 +39,33 @@ _INITIAL_SEEDS = [
 ]
 
 for seed in _INITIAL_SEEDS:
+    # Compute ML-based ETA to route terminus
+    _seed_eta_str = "—"
+    if not seed["is_ghost"]:
+        try:
+            from traffic.ml_eta_predictor import get_predictor
+            _seed_predictor = get_predictor()
+            _terminus = _ROUTE_TERMINI.get(seed["route"])
+            if _terminus:
+                _seed_ml = _seed_predictor.predict(
+                    src_lat=seed["lat"],
+                    src_lon=seed["lng"],
+                    dst_lat=_terminus["lat"],
+                    dst_lon=_terminus["lon"],
+                    current_speed_kmph=seed["speed"],
+                )
+                _seed_eta_str = f"{round(_seed_ml['eta_minutes'])} min"
+                logger.info(
+                    "Initial seed %s ETA to %s: %s (method=%s)",
+                    seed["trip"], _terminus["name"], _seed_eta_str,
+                    _seed_ml.get("method", "unknown"),
+                )
+            else:
+                _seed_eta_str = f"{random.randint(2, 12)} min"
+        except Exception as _seed_err:
+            logger.warning("ML ETA failed for seed %s, using random fallback: %s", seed["trip"], _seed_err)
+            _seed_eta_str = f"{random.randint(2, 12)} min"
+
     _LIVE_BUSES[seed["trip"]] = {
         "trip_id": seed["trip"],
         "route": seed["route"],
@@ -44,7 +78,7 @@ for seed in _INITIAL_SEEDS:
         "is_ghost": seed["is_ghost"],
         "status": "ghost_recovered" if seed["is_ghost"] else "active",
         "confidence": 0.98 if not seed["is_ghost"] else 0.85,
-        "eta_next_stop": "—" if seed["is_ghost"] else f"{random.randint(2,12)} min",
+        "eta_next_stop": _seed_eta_str,
     }
 
 _start_time = time.time()
@@ -122,10 +156,37 @@ async def ingest_telemetry(ping: TelemetryPing):
             "estimated_lng": round(final_lng, 5),
             "confidence": confidence,
             "snapped_road": f"{ping.near} Main Road",
-            "eta_next_stop": f"{random.randint(4, 10)} min",
+            "eta_next_stop": "—",
         }
 
-    # 3. Update the Speed Layer (In-memory dict)
+    # 3. Compute ML-based ETA to route terminus
+    eta_next_stop_str = "—"
+    try:
+        from traffic.ml_eta_predictor import get_predictor
+        _telem_predictor = get_predictor()
+        _telem_terminus = _ROUTE_TERMINI.get(ping.route)
+        if _telem_terminus:
+            _telem_ml = _telem_predictor.predict(
+                src_lat=final_lat,
+                src_lon=final_lng,
+                dst_lat=_telem_terminus["lat"],
+                dst_lon=_telem_terminus["lon"],
+                current_speed_kmph=speed if not is_ghost else None,
+            )
+            eta_next_stop_str = f"{round(_telem_ml['eta_minutes'])} min"
+            logger.info(
+                "Telemetry %s ETA: %s (ghost=%s, method=%s)",
+                ping.device_id, eta_next_stop_str, is_ghost,
+                _telem_ml.get("method", "unknown"),
+            )
+            # Also update ghost event ETA if this is a ghost bus
+            if is_ghost and _LAST_GHOST_EVENT and _LAST_GHOST_EVENT["trip_id"] == ping.device_id:
+                _LAST_GHOST_EVENT["eta_next_stop"] = eta_next_stop_str
+    except Exception as _telem_err:
+        logger.warning("ML ETA failed for %s, using random fallback: %s", ping.device_id, _telem_err)
+        eta_next_stop_str = "—" if is_ghost else f"{random.randint(2, 8)} min"
+
+    # 4. Update the Speed Layer (In-memory dict)
     _LIVE_BUSES[ping.device_id] = {
         "trip_id": ping.device_id,
         "route": ping.route,
@@ -138,7 +199,7 @@ async def ingest_telemetry(ping: TelemetryPing):
         "is_ghost": is_ghost,
         "status": status,
         "confidence": confidence,
-        "eta_next_stop": "—" if is_ghost else f"{random.randint(2, 8)} min",
+        "eta_next_stop": eta_next_stop_str,
     }
     
     return {"status": "success", "device": ping.device_id, "is_ghost": is_ghost}
