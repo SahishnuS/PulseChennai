@@ -71,6 +71,7 @@ export default function ETABadge({ eta_minutes, confidence_pct, confidence_label
       style={{
         display: 'flex', flexDirection: 'row',
         alignItems: 'center', gap: '8px', position: 'relative',
+        width: '100%',
       }}
     >
       {/* ETA number */}
@@ -93,7 +94,7 @@ export default function ETABadge({ eta_minutes, confidence_pct, confidence_label
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', cursor: 'default' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'default' }}
       >
         <svg width="48" height="48" viewBox="0 0 48 48" style={{ display: 'block' }}>
           {/* Background circle */}
@@ -116,16 +117,17 @@ export default function ETABadge({ eta_minutes, confidence_pct, confidence_label
             {confidence_pct != null ? `${confidence_pct}%` : '?'}
           </text>
         </svg>
-
-        {/* Label below */}
-        <span style={{
-          fontFamily: 'var(--font-data)', fontSize: '8px',
-          fontWeight: 700, color, textTransform: 'uppercase',
-          letterSpacing: '0.1em', lineHeight: 1,
-        }}>
-          {confidence_label || 'N/A'}
-        </span>
       </div>
+
+      {/* Confidence Label — pushed to the right end */}
+      <span style={{
+        marginLeft: 'auto',
+        fontFamily: 'var(--font-data)', fontSize: '11px',
+        fontWeight: 700, color, textTransform: 'uppercase',
+        letterSpacing: '0.1em', lineHeight: 1,
+      }}>
+        {confidence_label || 'N/A'}
+      </span>
 
       {/* Tooltip */}
       {hovered && (

@@ -60,7 +60,7 @@ async def _bus_polling_loop():
             # Fetch all buses
             result = supabase.table("buses").select("*").execute()
             raw_buses = result.data if result.data else []
-            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
+            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515", "21C", "70", "47A"]]
 
             for bus in buses:
                 bus_id = bus.get("id", "")

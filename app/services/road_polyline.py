@@ -58,6 +58,30 @@ ROUTE_STOP_COORDS: dict[str, list[tuple[float, float]]] = {
         (12.9986, 80.2369),   # Kotturpuram
         (12.9824, 80.2588),   # Thiruvanmiyur
     ],
+    "21C": [
+        (13.0694, 80.1948),   # Koyambedu CMBT
+        (13.0526, 80.2104),   # Vadapalani
+        (13.0354, 80.2124),   # Ashok Pillar
+        (13.0084, 80.2131),   # Guindy
+        (13.0063, 80.2443),   # Madhya Kailash
+        (13.0012, 80.2565),   # Adyar Depot
+        (12.9953, 80.2538),   # Adyar
+    ],
+    "70": [
+        (13.0827, 80.2756),   # Chennai Central
+        (13.1082, 80.2467),   # Perambur
+        (13.1030, 80.2039),   # Villivakkam
+        (13.1091, 80.1700),   # Dunlop
+        (13.1017, 80.1611),   # Ambattur
+    ],
+    "47A": [
+        (13.0418, 80.2341),   # T Nagar Bus Terminus
+        (13.0182, 80.2213),   # Saidapet
+        (13.0084, 80.2131),   # Guindy
+        (12.9868, 80.1762),   # Meenambakkam
+        (12.9675, 80.1491),   # Pallavaram
+        (12.9560, 80.1435),   # Chromepet
+    ],
 }
 
 

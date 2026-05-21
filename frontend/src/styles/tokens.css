@@ -19,4 +19,5 @@
   --radius-chip: 6px;
   --shadow-panel: 0 0 0 1px var(--color-border), 0 8px 32px rgba(0,0,0,0.5);
   --shadow-accent: 0 0 20px var(--color-accent-glow);
+  color-scheme: dark;
 }

@@ -23,7 +23,9 @@ except ImportError:
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from traffic.ingest_mtc import scrape_route_stops, geocode_stop
 
-ROUTES_TO_INGEST = ["19", "102X", "515"]
+import time
+
+ROUTES_TO_INGEST = ["19", "102X", "515", "21C", "70", "47A"]
 
 
 def clear_database(supabase):
@@ -77,6 +79,7 @@ def seed():
         
         for idx, stop_name in enumerate(stops):
             coords = geocode_stop(stop_name)
+            time.sleep(0.25) # Respect API rate limits
             stop_id = f"STOP_{route_id}_{idx+1}"
             
             row = {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Tooltip, Polygon, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import BusDetailPanel from '../components/BusDetailPanel';
@@ -107,7 +107,14 @@ const LerpingBusMarker = ({ bus, isHighlighted, isDeviated, routePolyline, onCli
     <Marker
       position={pos}
       icon={createBusIcon(bus, isHighlighted, isDeviated)}
-      eventHandlers={{ click: onClick }}
+      eventHandlers={{
+        click: (e) => {
+          if (e && e.originalEvent) {
+            L.DomEvent.stopPropagation(e);
+          }
+          onClick(e);
+        }
+      }}
     />
   );
 };
@@ -120,6 +127,7 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
   const [geometries, setGeometries] = useState({});
   const [tomtomPolylines, setTomtomPolylines] = useState(new Map());
   const [selectedBus, setSelectedBus] = useState(null);
+  const [showBoardingModal, setShowBoardingModal] = useState(false);
   
   const [userLocation, setUserLocation] = useState({ lat: 13.0827, lng: 80.2707, accuracy: 50 });
   const [searchQuery, setSearchQuery] = useState('');
@@ -224,6 +232,7 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
       const busToFocus = buses.find(b => b.id === focusBusId);
       if (busToFocus) {
         setSelectedBus(busToFocus);
+        setShowBoardingModal(false);
         setMapCenter([busToFocus.lat, busToFocus.lng]);
         setMapZoom(16);
       }
@@ -231,8 +240,13 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
   }, [focusBusId, buses]);
 
   const handleMapClick = () => {
-    setSelectedBus(null);
-    if (onClearFocus) onClearFocus();
+    if (showBoardingModal) {
+      setShowBoardingModal(false);
+    } else {
+      setSelectedBus(null);
+      setSelectedStopForWatch(null);
+      if (onClearFocus) onClearFocus();
+    }
   };
 
   const nearbyBuses = buses
@@ -248,9 +262,9 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
         zoomControl={false}
         ref={mapRef}
         style={{ height: '100%', width: '100%', background: 'var(--color-bg-base)' }}
-        onClick={handleMapClick}
       >
         <MapUpdater center={mapCenter} zoom={mapZoom} />
+        <MapEventsHandler onClick={handleMapClick} />
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           attribution="&copy; <a href='https://openstreetmap.org'>OpenStreetMap</a> &copy; <a href='https://carto.com/'>CARTO</a>"
@@ -287,7 +301,10 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
                 color: 'transparent'
               }}
               eventHandlers={{
-                click: () => {
+                click: (e) => {
+                  if (e && e.originalEvent) {
+                    L.DomEvent.stopPropagation(e);
+                  }
                   setSelectedStopForWatch({
                     routeId: route,
                     stopId: stop.id,
@@ -316,6 +333,7 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
               routePolyline={tomtomPolylines.get(bus.route)}
               onClick={() => {
                 setSelectedBus(bus);
+                setShowBoardingModal(false);
                 setMapCenter([bus.lat, bus.lng]);
                 setMapZoom(16);
               }}
@@ -374,6 +392,8 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
         style={{
           position: 'absolute', top: '24px', right: '24px', zIndex: 1001,
           display: 'flex', alignItems: 'center', gap: '8px',
+          justifyContent: 'center',
+          width: '240px',
           padding: '10px 16px',
           background: showDemandLayer ? 'var(--color-accent)' : 'var(--color-bg-elevated)',
           border: `1px solid ${showDemandLayer ? 'var(--color-accent)' : 'var(--color-border)'}`,
@@ -402,7 +422,7 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
         border: '1px solid var(--color-border)',
         borderRadius: '14px',
         padding: '14px 16px',
-        minWidth: '210px',
+        width: '240px',
         boxShadow: 'var(--shadow-panel)',
         transition: 'opacity 0.3s ease',
         opacity: showDemandLayer ? 1 : 0.35,
@@ -455,7 +475,8 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
       {/* ── Search Bar ── */}
       <div style={{
         position: 'absolute', top: '68px', left: '24px', right: '24px', zIndex: 50,
-        maxWidth: '560px', margin: '0 auto'
+        maxWidth: '560px', margin: '0 auto',
+        display: 'none'
       }}>
         <input 
           type="text"
@@ -519,6 +540,7 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
           {nearbyBuses.length > 0 ? nearbyBuses.map(bus => (
             <div key={bus.id} onClick={() => { 
                 setSelectedBus(bus); 
+                setShowBoardingModal(false);
                 setMapCenter([bus.lat, bus.lng]);
                 setMapZoom(16);
               }} style={{
@@ -558,7 +580,9 @@ export default function MapView({ language, focusBusId, onClearFocus }) {
       <BusDetailPanel 
         bus={selectedBus} 
         language={language}
-        onClose={() => setSelectedBus(null)} 
+        onClose={() => { setSelectedBus(null); if (onClearFocus) onClearFocus(); }} 
+        showBoardingModal={showBoardingModal}
+        setShowBoardingModal={setShowBoardingModal}
       />
 
       {/* ── Watch Stop Prompt (Bottom Sheet) ── */}
@@ -730,5 +754,14 @@ function MapUpdater({ center, zoom }) {
   React.useEffect(() => {
     map.setView(center, zoom, { animate: true });
   }, [center, zoom, map]);
+  return null;
+}
+
+function MapEventsHandler({ onClick }) {
+  useMapEvents({
+    click: () => {
+      onClick();
+    }
+  });
   return null;
 }

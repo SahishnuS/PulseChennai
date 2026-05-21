@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Map, Globe, User, Shield, Info } from 'lucide-react';
+import CustomSelect from '../components/CustomSelect';
 
 // A simple local storage hook
 function useLocalStorage(key, initialValue) {
@@ -101,23 +102,15 @@ export default function SettingsPage() {
             
             <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '0.95rem', fontWeight: 500, color: 'var(--color-text-primary)' }}>Alert lead time</label>
-              <select
+              <CustomSelect
                 value={alertLeadTime}
                 onChange={e => setAlertLeadTime(e.target.value)}
-                style={{
-                  background: 'var(--color-bg-elevated)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-primary)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontFamily: 'inherit',
-                  fontSize: '0.9rem',
-                }}
-              >
-                <option value="2">2 min</option>
-                <option value="5">5 min</option>
-                <option value="10">10 min</option>
-              </select>
+                options={[
+                  { value: '2', label: '2 min' },
+                  { value: '5', label: '5 min' },
+                  { value: '10', label: '10 min' }
+                ]}
+              />
             </div>
           </div>
         );
@@ -132,23 +125,15 @@ export default function SettingsPage() {
             
             <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '0.95rem', fontWeight: 500, color: 'var(--color-text-primary)' }}>Map theme</label>
-              <select
+              <CustomSelect
                 value={mapTheme}
                 onChange={e => setMapTheme(e.target.value)}
-                style={{
-                  background: 'var(--color-bg-elevated)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-primary)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontFamily: 'inherit',
-                  fontSize: '0.9rem',
-                }}
-              >
-                <option value="dark">Dark</option>
-                <option value="satellite">Satellite</option>
-                <option value="standard">Standard</option>
-              </select>
+                options={[
+                  { value: 'dark', label: 'Dark' },
+                  { value: 'satellite', label: 'Satellite' },
+                  { value: 'standard', label: 'Standard' }
+                ]}
+              />
             </div>
           </div>
         );

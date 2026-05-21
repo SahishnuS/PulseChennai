@@ -33,7 +33,10 @@ Do not hallucinate data. If a bus isn't in the context, say you don't have real-
 Available routes:
 - 19: Thiruporur → T Nagar
 - 102X: Kelambakkam → Broadway
-- 515: Tambaram → Mamallapuram"""
+- 515: Tambaram → Mamallapuram
+- 21C: Koyambedu → Adyar
+- 70: Central → Ambattur
+- 47A: T Nagar → Chromepet"""
 
 
 @router.post("/ai/query")
@@ -50,7 +53,7 @@ async def ai_query(req: AIQueryRequest):
         client = get_supabase()
         if client:
             raw_buses = client.table("buses").select("*").execute().data or []
-            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
+            buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515", "21C", "70", "47A"]]
             alerts = client.table("alerts").select("*").order("created_at", desc=True).limit(5).execute().data
             live_context = {
                 "active_buses": buses,

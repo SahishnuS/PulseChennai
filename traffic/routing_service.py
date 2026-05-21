@@ -48,6 +48,30 @@ FALLBACK_ROUTES = {
         {"id": "STOP_KELAMBAKKAM_515", "name": "Kelambakkam", "lat": 12.7915, "lng": 80.2185, "sequence": 5},
         {"id": "STOP_THIRUPORUR_515", "name": "Thiruporur", "lat": 12.7275, "lng": 80.1989, "sequence": 6},
         {"id": "STOP_MAMALLAPURAM_515", "name": "Mamallapuram", "lat": 12.6208, "lng": 80.1945, "sequence": 7},
+    ],
+    "21C": [
+        {"id": "STOP_KOYAMBEDU_21C", "name": "Koyambedu CMBT", "lat": 13.0694, "lng": 80.1948, "sequence": 1},
+        {"id": "STOP_VADAPALANI_21C", "name": "Vadapalani", "lat": 13.0526, "lng": 80.2104, "sequence": 2},
+        {"id": "STOP_ASHOK_PILLAR_21C", "name": "Ashok Pillar", "lat": 13.0354, "lng": 80.2124, "sequence": 3},
+        {"id": "STOP_GUINDY_21C", "name": "Guindy", "lat": 13.0084, "lng": 80.2131, "sequence": 4},
+        {"id": "STOP_MADHYA_KAILASH_21C", "name": "Madhya Kailash", "lat": 13.0063, "lng": 80.2443, "sequence": 5},
+        {"id": "STOP_ADYAR_DEPOT_21C", "name": "Adyar Depot", "lat": 13.0012, "lng": 80.2565, "sequence": 6},
+        {"id": "STOP_ADYAR_21C", "name": "Adyar", "lat": 12.9953, "lng": 80.2538, "sequence": 7},
+    ],
+    "70": [
+        {"id": "STOP_CENTRAL_70", "name": "Chennai Central", "lat": 13.0827, "lng": 80.2756, "sequence": 1},
+        {"id": "STOP_PERAMBUR_70", "name": "Perambur", "lat": 13.1082, "lng": 80.2467, "sequence": 2},
+        {"id": "STOP_VILLIVAKKAM_70", "name": "Villivakkam", "lat": 13.1030, "lng": 80.2039, "sequence": 3},
+        {"id": "STOP_DUNLOP_70", "name": "Dunlop", "lat": 13.1091, "lng": 80.1700, "sequence": 4},
+        {"id": "STOP_AMBATTUR_70", "name": "Ambattur", "lat": 13.1017, "lng": 80.1611, "sequence": 5},
+    ],
+    "47A": [
+        {"id": "STOP_TNAGAR_47A", "name": "T Nagar Bus Terminus", "lat": 13.0418, "lng": 80.2341, "sequence": 1},
+        {"id": "STOP_SAIDAPET_47A", "name": "Saidapet", "lat": 13.0182, "lng": 80.2213, "sequence": 2},
+        {"id": "STOP_GUINDY_47A", "name": "Guindy", "lat": 13.0084, "lng": 80.2131, "sequence": 3},
+        {"id": "STOP_MEENAMBAKKAM_47A", "name": "Meenambakkam", "lat": 12.9868, "lng": 80.1762, "sequence": 4},
+        {"id": "STOP_PALLAVARAM_47A", "name": "Pallavaram", "lat": 12.9675, "lng": 80.1491, "sequence": 5},
+        {"id": "STOP_CHROMEPET_47A", "name": "Chromepet", "lat": 12.9560, "lng": 80.1435, "sequence": 6},
     ]
 }
 

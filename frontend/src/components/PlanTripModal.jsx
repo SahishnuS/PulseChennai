@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Bus, CreditCard, Ticket, Search, X, CheckCircle, ChevronRight, Clock } from 'lucide-react';
+import { MapPin, Bus, CreditCard, Ticket, Search, X, CheckCircle, ChevronRight, Clock, ArrowLeft } from 'lucide-react';
 import { addTicket, generateTicketId } from '../store/ticketStore';
 
 // Mock SVG icons for UPI apps
@@ -28,6 +28,7 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
   
   // Payment states
   const [isPaying, setIsPaying] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('GPay');
   
   // Ticket states
   const [ticket, setTicket] = useState(null);
@@ -50,6 +51,7 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
     setSelectedDestination(null);
     setSelectedRoute(null);
     setTicket(null);
+    setSelectedPaymentMethod('GPay');
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -58,6 +60,8 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
 
   const handleFindRoutes = () => {
     if (!selectedDestination) return;
+    const recommended = mockRoutes.find(r => r.recommended) || mockRoutes[0];
+    setSelectedRoute(recommended);
     setStep(2);
   };
 
@@ -135,14 +139,30 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
     }}>
       {/* Header */}
       <div style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {[1, 2, 3, 4].map(s => (
-            <div key={s} style={{
-              width: '40px', height: '4px', borderRadius: '2px',
-              background: s <= step ? 'var(--color-accent)' : 'var(--color-border)',
-              transition: 'background 0.3s'
-            }} />
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {step > 1 && step < 4 && (
+            <button 
+              onClick={() => setStep(prev => prev - 1)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--color-text-primary)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '4px', borderRadius: '50%', transition: 'background 0.2s'
+              }}
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+              onMouseOut={e => e.currentTarget.style.background = 'none'}
+            >
+              <ArrowLeft size={24} />
+            </button>
+          )}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {[1, 2, 3, 4].map(s => (
+              <div key={s} style={{
+                width: '40px', height: '4px', borderRadius: '2px',
+                background: s <= step ? 'var(--color-accent)' : 'var(--color-border)',
+                transition: 'background 0.3s'
+              }} />
+            ))}
+          </div>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>
           <X size={28} />
@@ -248,66 +268,78 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
               </h2>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {mockRoutes.map(route => (
-                  <div key={route.id} style={{
-                    background: 'var(--color-bg-panel)', borderRadius: '16px',
-                    border: route.recommended ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                    overflow: 'hidden', position: 'relative'
-                  }}>
-                    {route.recommended && (
-                      <div style={{ background: 'var(--color-accent)', color: '#080C14', fontSize: '0.7rem', fontWeight: 800, padding: '4px 12px', display: 'inline-block', borderBottomRightRadius: '8px' }}>
-                        RECOMMENDED
-                      </div>
-                    )}
-                    <div style={{ padding: '20px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{ background: 'var(--color-accent)', color: '#080C14', padding: '4px 12px', borderRadius: '8px', fontWeight: 800, fontSize: '1.1rem' }}>
-                            {route.routeId}
+                {mockRoutes.map(route => {
+                  const isSelected = selectedRoute && selectedRoute.id === route.id;
+                  return (
+                    <div 
+                      key={route.id} 
+                      onClick={() => setSelectedRoute(route)}
+                      style={{
+                        background: 'var(--color-bg-panel)', borderRadius: '16px',
+                        border: isSelected ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                        boxShadow: isSelected ? '0 0 15px rgba(0, 212, 255, 0.2)' : 'none',
+                        overflow: 'hidden', position: 'relative', cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {route.recommended && (
+                        <div style={{ background: 'var(--color-accent)', color: '#080C14', fontSize: '0.7rem', fontWeight: 800, padding: '4px 12px', display: 'inline-block', borderBottomRightRadius: '8px' }}>
+                          RECOMMENDED
+                        </div>
+                      )}
+                      <div style={{ padding: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ background: 'var(--color-accent)', color: '#080C14', padding: '4px 12px', borderRadius: '8px', fontWeight: 800, fontSize: '1.1rem' }}>
+                              {route.routeId}
+                            </div>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{route.name}</span>
                           </div>
-                          <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{route.name}</span>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>₹{route.fare}</span>
+                          </div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>₹{route.fare}</span>
+
+                        <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
+                          Chennai Central <ChevronRight size={14} style={{ verticalAlign: 'middle' }}/> {selectedDestination}
+                          <span style={{ color: 'var(--color-text-muted)', marginLeft: '8px' }}>via {route.stopsCount} stops</span>
+                        </p>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Clock size={16} color="var(--color-text-secondary)" />
+                            <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{route.duration} min trip</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Bus size={16} color="var(--color-text-secondary)" />
+                            <span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>In {route.eta} min</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: getCrowdingColor(route.crowding) }} />
+                            <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', textTransform: 'capitalize' }}>{route.crowding}</span>
+                          </div>
                         </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectRoute(route);
+                          }}
+                          style={{
+                            width: '100%', padding: '12px', borderRadius: '8px',
+                            border: isSelected ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                            background: isSelected ? 'rgba(0, 212, 255, 0.1)' : 'transparent',
+                            color: 'var(--color-text-primary)',
+                            fontSize: '1rem', fontWeight: 600, cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Select This Route
+                        </button>
                       </div>
-
-                      <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
-                        Chennai Central <ChevronRight size={14} style={{ verticalAlign: 'middle' }}/> {selectedDestination}
-                        <span style={{ color: 'var(--color-text-muted)', marginLeft: '8px' }}>via {route.stopsCount} stops</span>
-                      </p>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Clock size={16} color="var(--color-text-secondary)" />
-                          <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{route.duration} min trip</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Bus size={16} color="var(--color-text-secondary)" />
-                          <span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>In {route.eta} min</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: getCrowdingColor(route.crowding) }} />
-                          <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', textTransform: 'capitalize' }}>{route.crowding}</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => handleSelectRoute(route)}
-                        style={{
-                          width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--color-border)',
-                          background: 'transparent', color: 'var(--color-text-primary)',
-                          fontSize: '1rem', fontWeight: 600, cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseOver={e => { e.target.style.background = 'var(--color-border)'; }}
-                        onMouseOut={e => { e.target.style.background = 'transparent'; }}
-                      >
-                        Select This Route
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -352,18 +384,27 @@ export default function PlanTripModal({ isOpen, onClose, onTrackBus, language })
               <div>
                 <p style={{ color: 'var(--color-text-secondary)', marginBottom: '12px', fontSize: '0.9rem' }}>Pay via UPI</p>
                 <div style={{ display: 'flex', gap: '16px' }}>
-                  {['GPay', 'PhonePe', 'Paytm'].map((app, idx) => (
-                    <div key={app} style={{
-                      flex: 1, padding: '16px', background: 'var(--color-bg-panel)', borderRadius: '12px',
-                      border: idx === 0 ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer'
-                    }}>
-                      {idx === 0 && <GPayIcon />}
-                      {idx === 1 && <PhonePeIcon />}
-                      {idx === 2 && <PaytmIcon />}
-                      <span style={{ color: 'var(--color-text-primary)', fontSize: '0.8rem', fontWeight: 600 }}>{app}</span>
-                    </div>
-                  ))}
+                  {['GPay', 'PhonePe', 'Paytm'].map((app, idx) => {
+                    const isSelected = selectedPaymentMethod === app;
+                    return (
+                      <div 
+                        key={app} 
+                        onClick={() => setSelectedPaymentMethod(app)}
+                        style={{
+                          flex: 1, padding: '16px', background: 'var(--color-bg-panel)', borderRadius: '12px',
+                          border: isSelected ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                          boxShadow: isSelected ? '0 0 10px rgba(0, 212, 255, 0.15)' : 'none',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {app === 'GPay' && <GPayIcon />}
+                        {app === 'PhonePe' && <PhonePeIcon />}
+                        {app === 'Paytm' && <PaytmIcon />}
+                        <span style={{ color: 'var(--color-text-primary)', fontSize: '0.8rem', fontWeight: 600 }}>{app}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

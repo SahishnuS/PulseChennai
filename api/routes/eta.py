@@ -101,6 +101,10 @@ def _model_used_label(method_str: str, tomtom_applied: bool) -> str:
 _ROUTE_TERMINI = {
     "19":   {"lat": 13.0338, "lon": 80.2326, "label": "T. Nagar Bus Terminus"},
     "102X": {"lat": 13.0827, "lon": 80.2707, "label": "Broadway Bus Stand"},
+    "515":  {"lat": 12.6208, "lon": 80.1945, "label": "Mamallapuram Bus Stand"},
+    "21C":  {"lat": 12.9953, "lon": 80.2538, "label": "Adyar Depot"},
+    "70":   {"lat": 13.1017, "lon": 80.1611, "label": "Ambattur OT"},
+    "47A":  {"lat": 12.9560, "lon": 80.1435, "label": "Chromepet Depot"},
 }
 
 # Intermediate stops for each route (for distance context)
@@ -122,6 +126,39 @@ _ROUTE_STOPS = {
         {"lat": 13.0694, "lon": 80.1948, "label": "Koyambedu"},
         {"lat": 13.0569, "lon": 80.2497, "label": "Anna Salai"},
         {"lat": 13.0827, "lon": 80.2707, "label": "Broadway"},
+    ],
+    "515": [
+        {"lat": 13.0891, "lon": 80.2101, "label": "Anna Nagar Tower"},
+        {"lat": 13.0842, "lon": 80.2089, "label": "15th Main Road"},
+        {"lat": 13.0778, "lon": 80.2023, "label": "Thirumangalam"},
+        {"lat": 13.0722, "lon": 80.1963, "label": "Koyambedu CMBT"},
+        {"lat": 13.0418, "lon": 80.2341, "label": "T Nagar"},
+        {"lat": 12.9986, "lon": 80.2369, "label": "Kotturpuram"},
+        {"lat": 12.9824, "lon": 80.2588, "label": "Thiruvanmiyur"},
+    ],
+    "21C": [
+        {"lat": 13.0694, "lon": 80.1948, "label": "Koyambedu CMBT"},
+        {"lat": 13.0526, "lon": 80.2104, "label": "Vadapalani"},
+        {"lat": 13.0354, "lon": 80.2124, "label": "Ashok Pillar"},
+        {"lat": 13.0084, "lon": 80.2131, "label": "Guindy"},
+        {"lat": 13.0063, "lon": 80.2443, "label": "Madhya Kailash"},
+        {"lat": 13.0012, "lon": 80.2565, "label": "Adyar Depot"},
+        {"lat": 12.9953, "lon": 80.2538, "label": "Adyar"},
+    ],
+    "70": [
+        {"lat": 13.0827, "lon": 80.2756, "label": "Chennai Central"},
+        {"lat": 13.1082, "lon": 80.2467, "label": "Perambur"},
+        {"lat": 13.1030, "lon": 80.2039, "label": "Villivakkam"},
+        {"lat": 13.1091, "lon": 80.1700, "label": "Dunlop"},
+        {"lat": 13.1017, "lon": 80.1611, "label": "Ambattur"},
+    ],
+    "47A": [
+        {"lat": 13.0418, "lon": 80.2341, "label": "T Nagar Bus Terminus"},
+        {"lat": 13.0182, "lon": 80.2213, "label": "Saidapet"},
+        {"lat": 13.0084, "lon": 80.2131, "label": "Guindy"},
+        {"lat": 12.9868, "lon": 80.1762, "label": "Meenambakkam"},
+        {"lat": 12.9675, "lon": 80.1491, "label": "Pallavaram"},
+        {"lat": 12.9560, "lon": 80.1435, "label": "Chromepet"},
     ],
 }
 

@@ -65,8 +65,8 @@ async def get_all_buses():
     try:
         result = supabase.table("buses").select("*").execute()
         raw_buses = result.data if result.data else []
-        # Keep only 19, 102X, and 515
-        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
+        # Keep only 19, 102X, 515, 21C, 70, and 47A
+        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515", "21C", "70", "47A"]]
     except Exception as e:
         logger.warning(f"Failed to fetch buses: {e}")
         buses = []
@@ -91,7 +91,7 @@ async def get_bus(bus_id: str):
         result = supabase.table("buses").select("*").eq("id", bus_id).execute()
         if result.data and len(result.data) > 0:
             bus = result.data[0]
-            if bus.get("route") in ["19", "102X", "515"]:
+            if bus.get("route") in ["19", "102X", "515", "21C", "70", "47A"]:
                 return {"bus_id": bus_id, **bus}
     except Exception as e:
         logger.warning(f"Failed to fetch bus {bus_id}: {e}")
@@ -213,8 +213,8 @@ async def get_metrics():
     try:
         result = supabase.table("buses").select("*").execute()
         raw_buses = result.data if result.data else []
-        # Keep only 19, 102X, and 515
-        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515"]]
+        # Keep only 19, 102X, 515, 21C, 70, and 47A
+        buses = [b for b in raw_buses if b.get("route") in ["19", "102X", "515", "21C", "70", "47A"]]
     except Exception:
         buses = []
 

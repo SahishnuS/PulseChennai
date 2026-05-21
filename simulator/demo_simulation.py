@@ -42,6 +42,21 @@ STOPS_515 = [
     (12.7915, 80.2185), (12.7275, 80.1989), (12.6208, 80.1945)
 ]
 
+STOPS_21C = [
+    (13.0694, 80.1948), (13.0526, 80.2104), (13.0354, 80.2124), (13.0084, 80.2131),
+    (13.0063, 80.2443), (13.0012, 80.2565), (12.9953, 80.2538)
+]
+
+STOPS_70 = [
+    (13.0827, 80.2756), (13.1082, 80.2467), (13.1030, 80.2039), (13.1091, 80.1700),
+    (13.1017, 80.1611)
+]
+
+STOPS_47A = [
+    (13.0418, 80.2341), (13.0182, 80.2213), (13.0084, 80.2131), (12.9868, 80.1762),
+    (12.9675, 80.1491), (12.9560, 80.1435)
+]
+
 BUSES = [
   {
     "id": "BUS_19_001",
@@ -70,6 +85,60 @@ BUSES = [
     "ghost_at_index": None,
     "speed_kmh": 20,
     "start_offset": 0
+  },
+  {
+    "id": "BUS_21C_001",
+    "route": "21C",
+    "stops": STOPS_21C,
+    "crowding_pattern": ["low", "medium", "high", "medium", "medium", "low", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 24,
+    "start_offset": 0
+  },
+  {
+    "id": "BUS_21C_002",
+    "route": "21C",
+    "stops": STOPS_21C,
+    "crowding_pattern": ["low", "low", "medium", "high", "high", "medium", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 22,
+    "start_offset": 2
+  },
+  {
+    "id": "BUS_070_001",
+    "route": "70",
+    "stops": STOPS_70,
+    "crowding_pattern": ["medium", "high", "high", "medium", "low"],
+    "ghost_at_index": 2,
+    "speed_kmh": 25,
+    "start_offset": 1
+  },
+  {
+    "id": "BUS_070_002",
+    "route": "70",
+    "stops": STOPS_70,
+    "crowding_pattern": ["low", "medium", "medium", "high", "medium"],
+    "ghost_at_index": None,
+    "speed_kmh": 23,
+    "start_offset": 3
+  },
+  {
+    "id": "BUS_47A_001",
+    "route": "47A",
+    "stops": STOPS_47A,
+    "crowding_pattern": ["low", "medium", "high", "high", "medium", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 21,
+    "start_offset": 0
+  },
+  {
+    "id": "BUS_47A_002",
+    "route": "47A",
+    "stops": STOPS_47A,
+    "crowding_pattern": ["medium", "medium", "high", "medium", "low", "low"],
+    "ghost_at_index": None,
+    "speed_kmh": 23,
+    "start_offset": 2
   }
 ]
 

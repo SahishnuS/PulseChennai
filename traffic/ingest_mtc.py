@@ -39,6 +39,25 @@ OFFICIAL_ROUTES_MOCK = {
         "Tambaram West", "Tambaram East", "Irumbuliyur", "Perungulattur", "Vandalur Zoo",
         "Kolapakkam", "Rathinangalam", "Mambakkam", "Pudupakkam", "Kelambakkam",
         "Thiruporur", "Kalavakkam", "Paiyanur", "Mamallapuram"
+    ],
+    "21C": [
+        "Koyambedu CMBT", "Koyambedu Market", "Arumbakkam", "Vadapalani", 
+        "Ashok Pillar", "Kasi Theatre", "Ekkattuthangal", "Guindy", 
+        "Little Mount", "Raj Bhavan", "Anna University", "Madhya Kailash", 
+        "Kasturibai Nagar", "Adyar Depot", "Adyar"
+    ],
+    "70": [
+        "Chennai Central", "Park Town", "Ripon Building", "Periamet", 
+        "Vepery", "Doveton", "Pattalam", "Otteri", 
+        "Perambur", "Jamalia", "Sayani", "Ayanavaram", 
+        "ICF Colony", "Villivakkam", "Padi Lucas TVS", "Dunlop", 
+        "Ambattur Industrial Estate", "Ambattur"
+    ],
+    "47A": [
+        "T Nagar Bus Terminus", "Nandanam", "Saidapet", "Saidapet Court", 
+        "Little Mount", "Guindy", "Guindy National Park", "Meenambakkam", 
+        "Old Airport", "Cement Road", "Alandur", "Pallavaram", 
+        "Thrisoolam", "Airport Metro Station", "Kadaperi", "Chromepet"
     ]
 }
 

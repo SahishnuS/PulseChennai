@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Bell, Gauge, Radio, Navigation, Eye } from 'lucide-react';
 import { INITIAL_BUSES } from '../services/busSimulator';
+import CustomSelect from '../components/CustomSelect';
 
 // ── Hardcoded route data (Prompt 4 spec) ──
 const ROUTE_DATA = {
@@ -240,21 +241,15 @@ export default function JourneyView({ language, onTrackBus }) {
             GET NOTIFIED WHEN BUS ARRIVES
           </p>
 
-          <select
+          <CustomSelect
             value={selectedStopIdx !== null ? selectedStopIdx : ''}
             onChange={e => setSelectedStopIdx(e.target.value !== '' ? parseInt(e.target.value) : null)}
-            style={{
-              width: '100%', padding: '10px 12px',
-              background: 'var(--color-bg-base)', border: '1px solid var(--color-border)',
-              borderRadius: '8px', color: 'var(--color-text-primary)',
-              fontSize: '0.9rem', marginBottom: '12px', outline: 'none',
-            }}
-          >
-            <option value="">Select a stop...</option>
-            {routeStops.map((s, i) => (
-              <option key={i} value={i}>{s}</option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'Select a stop...' },
+              ...routeStops.map((s, i) => ({ value: i, label: s }))
+            ]}
+            buttonStyle={{ background: 'var(--color-bg-base)', marginBottom: '12px' }}
+          />
 
           {/* Alert distance radio buttons */}
           <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
